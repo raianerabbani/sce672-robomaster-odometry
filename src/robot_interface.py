@@ -21,6 +21,62 @@ except ImportError:
     ROBOMASTER_AVAILABLE = False
 
 
+# RoboMaster EP Core Mecanum geometry constants
+WHEEL_RADIUS = 0.050   # 100 mm diameter Mecanum wheels -> 0.050 m radius
+HALF_WHEELBASE = 0.100 # lx = 0.100 m
+HALF_TRACKWIDTH = 0.105 # ly = 0.105 m
+
+
+def mecanum_inverse_kinematics(
+    vx: float,
+    vy: float,
+    wz_deg: float,
+    wheel_radius: float = WHEEL_RADIUS,
+    lx: float = HALF_WHEELBASE,
+    ly: float = HALF_TRACKWIDTH,
+) -> Tuple[int, int, int, int]:
+    """Convert chassis velocities (vx m/s, vy m/s, wz_deg deg/s CW) to wheel RPMs (w1, w2, w3, w4).
+
+    Wheel layout (RoboMaster SDK convention, positive = forward):
+        w1: Front-Right, w2: Front-Left, w3: Rear-Left, w4: Rear-Right
+    """
+    wz_rad = math.radians(wz_deg)
+    L = lx + ly
+    v1 = vx - vy - L * wz_rad  # FR
+    v2 = vx + vy + L * wz_rad  # FL
+    v3 = vx - vy + L * wz_rad  # RL
+    v4 = vx + vy - L * wz_rad  # RR
+
+    rpm_per_mps = 60.0 / (2.0 * math.pi * wheel_radius)
+    w1 = int(np.clip(round(v1 * rpm_per_mps), -1000, 1000))
+    w2 = int(np.clip(round(v2 * rpm_per_mps), -1000, 1000))
+    w3 = int(np.clip(round(v3 * rpm_per_mps), -1000, 1000))
+    w4 = int(np.clip(round(v4 * rpm_per_mps), -1000, 1000))
+    return w1, w2, w3, w4
+
+
+def mecanum_forward_kinematics(
+    w1: float,
+    w2: float,
+    w3: float,
+    w4: float,
+    wheel_radius: float = WHEEL_RADIUS,
+    lx: float = HALF_WHEELBASE,
+    ly: float = HALF_TRACKWIDTH,
+) -> Tuple[float, float, float]:
+    """Convert wheel RPMs (w1, w2, w3, w4) to chassis velocities (vx m/s, vy m/s, wz_deg deg/s CW)."""
+    mps_per_rpm = (2.0 * math.pi * wheel_radius) / 60.0
+    v1 = w1 * mps_per_rpm
+    v2 = w2 * mps_per_rpm
+    v3 = w3 * mps_per_rpm
+    v4 = w4 * mps_per_rpm
+
+    vx = 0.25 * (v1 + v2 + v3 + v4)
+    vy = 0.25 * (-v1 + v2 - v3 + v4)
+    wz_rad = 0.25 * (-v1 + v2 + v3 - v4) / (lx + ly)
+    return vx, vy, math.degrees(wz_rad)
+
+
 class BaseRobot(ABC):
     """Abstract base class for robot interactions."""
 
@@ -45,8 +101,13 @@ class BaseRobot(ABC):
         pass
 
     @abstractmethod
+    def drive_wheels(self, w1: int, w2: int, w3: int, w4: int):
+        """Command individual wheel speeds in RPM (FR, FL, RL, RR)."""
+        pass
+
+    @abstractmethod
     def drive_speed(self, vx: float, vy: float, wz: float):
-        """Command chassis velocities (vx: m/s forward, vy: m/s lateral, wz: deg/s yaw)."""
+        """Command chassis velocities via inverse kinematics to individual wheels."""
         pass
 
     @abstractmethod
@@ -183,18 +244,25 @@ class RoboMasterRobot(BaseRobot):
         except Exception:
             return self._last_frame
 
-    def drive_speed(self, vx: float, vy: float, wz: float):
+    def drive_wheels(self, w1: int, w2: int, w3: int, w4: int):
+        """Directly command individual wheel RPMs (FR, FL, RL, RR) without chassis.drive_speed."""
         if self._connected and self.ep_robot is not None:
             try:
-                # Chassis drive speed takes (x, y, z) where x is forward (m/s), y is right (m/s), z is ccw (deg/s)
-                self.ep_robot.chassis.drive_speed(x=float(vx), y=float(vy), z=float(wz), timeout=0.5)
+                self.ep_robot.chassis.drive_wheels(
+                    w1=int(w1), w2=int(w2), w3=int(w3), w4=int(w4), timeout=0.5
+                )
             except Exception as e:
-                print(f"[Drive Error]: {e}")
+                print(f"[Drive Wheels Error]: {e}")
+
+    def drive_speed(self, vx: float, vy: float, wz: float):
+        """Convert (vx, vy, wz) to individual wheel RPMs via Mecanum inverse kinematics."""
+        w1, w2, w3, w4 = mecanum_inverse_kinematics(vx, vy, wz)
+        self.drive_wheels(w1, w2, w3, w4)
 
     def stop(self):
         if self._connected and self.ep_robot is not None:
             try:
-                self.ep_robot.chassis.drive_speed(x=0.0, y=0.0, z=0.0)
+                self.ep_robot.chassis.drive_wheels(w1=0, w2=0, w3=0, w4=0)
             except Exception:
                 pass
 
@@ -355,11 +423,17 @@ class MockRobot(BaseRobot):
         self.odo_y += self.cmd_vy * dt
         self.odo_yaw += self.cmd_wz * dt + np.random.normal(0, 0.01)
 
-    def drive_speed(self, vx: float, vy: float, wz: float):
+    def drive_wheels(self, w1: int, w2: int, w3: int, w4: int):
+        """Simulate individual wheel speed commands via Mecanum forward kinematics."""
         self._update_physics()
+        vx, vy, wz_deg = mecanum_forward_kinematics(w1, w2, w3, w4)
         self.cmd_vx = float(vx)
         self.cmd_vy = float(vy)
-        self.cmd_wz = float(wz)
+        self.cmd_wz = float(wz_deg)
+
+    def drive_speed(self, vx: float, vy: float, wz: float):
+        w1, w2, w3, w4 = mecanum_inverse_kinematics(vx, vy, wz)
+        self.drive_wheels(w1, w2, w3, w4)
 
     def stop(self):
         self.cmd_vx = 0.0

@@ -93,9 +93,9 @@ class StraightLineMotionController:
 
         # Yaw steering alignment for straight-line tracking
         if tag_bearing_deg is not None:
-            # Positive bearing means tag is to the right of camera center -> rotate right (+wz in robomaster)
-            # In RoboMaster SDK: positive wz is counter-clockwise (left), negative is clockwise (right).
-            # Therefore: wz = -kp * bearing
+            # Positive bearing means tag is to the right of camera center.
+            # Positive wz_deg in our Mecanum kinematics rotates clockwise (right):
+            # left wheels (w2, w3) spin faster than right wheels (w1, w4).
             bearing_error = float(tag_bearing_deg)
 
             # Derivative of bearing
@@ -105,7 +105,7 @@ class StraightLineMotionController:
                 if dt > 0.001:
                     bearing_rate = (bearing_error - self.last_bearing_deg) / dt
 
-            wz = -(self.kp_yaw * bearing_error + self.kd_yaw * bearing_rate)
+            wz = +(self.kp_yaw * bearing_error + self.kd_yaw * bearing_rate)
 
             # Saturate yaw rate
             wz = float(np.clip(wz, -self.max_yaw_rate, self.max_yaw_rate))
