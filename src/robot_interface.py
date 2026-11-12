@@ -22,37 +22,44 @@ except ImportError:
 
 
 # RoboMaster EP Core Mecanum geometry constants
-WHEEL_RADIUS = 0.050   # 100 mm diameter Mecanum wheels -> 0.050 m radius
-HALF_WHEELBASE = 0.100 # lx = 0.100 m
-HALF_TRACKWIDTH = 0.105 # ly = 0.105 m
+# RoboMaster EP Core M3508I ESC velocity-to-RPM scaling (3.50 m/s = 1000 RPM)
+MAX_CHASSIS_SPEED_MPS = 3.50
+MAX_WHEEL_RPM = 1000.0
+YAW_SCALE_DEGS = 250.0
+YAW_SCALE_RPM = 600.0
 
 
 def mecanum_inverse_kinematics(
     vx: float,
     vy: float,
     wz_deg: float,
-    wheel_radius: float = WHEEL_RADIUS,
-    lx: float = HALF_WHEELBASE,
-    ly: float = HALF_TRACKWIDTH,
 ) -> Tuple[int, int, int, int]:
     """Convert chassis velocities (vx m/s, vy m/s, wz_deg deg/s CW) to wheel RPMs (w1, w2, w3, w4).
 
-    Wheel layout (RoboMaster SDK convention, positive = forward):
+    Uses the calibrated DJI RoboMaster EP M3508I ESC mapping (3.50 m/s -> 1000 RPM).
+    Wheel layout (positive = forward wheel rotation):
         w1: Front-Right, w2: Front-Left, w3: Rear-Left, w4: Rear-Right
     """
-    wz_rad = math.radians(wz_deg)
-    L = lx + ly
-    v1 = vx - vy - L * wz_rad  # FR
-    v2 = vx + vy + L * wz_rad  # FL
-    v3 = vx - vy + L * wz_rad  # RL
-    v4 = vx + vy - L * wz_rad  # RR
+    rpm_x = (float(vx) / MAX_CHASSIS_SPEED_MPS) * MAX_WHEEL_RPM
+    rpm_y = (float(vy) / MAX_CHASSIS_SPEED_MPS) * MAX_WHEEL_RPM
+    rpm_z = (float(wz_deg) / YAW_SCALE_DEGS) * YAW_SCALE_RPM
 
-    rpm_per_mps = 60.0 / (2.0 * math.pi * wheel_radius)
-    w1 = int(np.clip(round(v1 * rpm_per_mps), -1000, 1000))
-    w2 = int(np.clip(round(v2 * rpm_per_mps), -1000, 1000))
-    w3 = int(np.clip(round(v3 * rpm_per_mps), -1000, 1000))
-    w4 = int(np.clip(round(v4 * rpm_per_mps), -1000, 1000))
-    return w1, w2, w3, w4
+    w1 = rpm_x - rpm_y - rpm_z  # FR
+    w2 = rpm_x + rpm_y + rpm_z  # FL
+    w3 = rpm_x - rpm_y + rpm_z  # RL
+    w4 = rpm_x + rpm_y - rpm_z  # RR
+
+    max_w = max(abs(w1), abs(w2), abs(w3), abs(w4))
+    if max_w > MAX_WHEEL_RPM:
+        scale = MAX_WHEEL_RPM / max_w
+        w1, w2, w3, w4 = w1 * scale, w2 * scale, w3 * scale, w4 * scale
+
+    return (
+        int(np.clip(round(w1), -1000, 1000)),
+        int(np.clip(round(w2), -1000, 1000)),
+        int(np.clip(round(w3), -1000, 1000)),
+        int(np.clip(round(w4), -1000, 1000)),
+    )
 
 
 def mecanum_forward_kinematics(
@@ -60,21 +67,16 @@ def mecanum_forward_kinematics(
     w2: float,
     w3: float,
     w4: float,
-    wheel_radius: float = WHEEL_RADIUS,
-    lx: float = HALF_WHEELBASE,
-    ly: float = HALF_TRACKWIDTH,
 ) -> Tuple[float, float, float]:
     """Convert wheel RPMs (w1, w2, w3, w4) to chassis velocities (vx m/s, vy m/s, wz_deg deg/s CW)."""
-    mps_per_rpm = (2.0 * math.pi * wheel_radius) / 60.0
-    v1 = w1 * mps_per_rpm
-    v2 = w2 * mps_per_rpm
-    v3 = w3 * mps_per_rpm
-    v4 = w4 * mps_per_rpm
+    rpm_x = 0.25 * (w1 + w2 + w3 + w4)
+    rpm_y = 0.25 * (-w1 + w2 - w3 + w4)
+    rpm_z = 0.25 * (-w1 + w2 + w3 - w4)
 
-    vx = 0.25 * (v1 + v2 + v3 + v4)
-    vy = 0.25 * (-v1 + v2 - v3 + v4)
-    wz_rad = 0.25 * (-v1 + v2 + v3 - v4) / (lx + ly)
-    return vx, vy, math.degrees(wz_rad)
+    vx = (rpm_x / MAX_WHEEL_RPM) * MAX_CHASSIS_SPEED_MPS
+    vy = (rpm_y / MAX_WHEEL_RPM) * MAX_CHASSIS_SPEED_MPS
+    wz_deg = (rpm_z / YAW_SCALE_RPM) * YAW_SCALE_DEGS
+    return float(vx), float(vy), float(wz_deg)
 
 
 class BaseRobot(ABC):
@@ -152,6 +154,7 @@ class RoboMasterRobot(BaseRobot):
         self._imu_roll = 0.0
         self._battery = 100
         self._cmd_wheels = (0, 0, 0, 0)
+        self._esc_wheels = (0, 0, 0, 0)
 
         self._last_frame = None
 
@@ -173,6 +176,10 @@ class RoboMasterRobot(BaseRobot):
             self.ep_robot.chassis.sub_attitude(
                 freq=50,
                 callback=self._on_sub_attitude
+            )
+            self.ep_robot.chassis.sub_esc(
+                freq=50,
+                callback=self._on_sub_esc
             )
             self.ep_robot.battery.sub_battery_info(
                 50,
@@ -222,6 +229,13 @@ class RoboMasterRobot(BaseRobot):
         except Exception:
             pass
 
+    def _on_sub_esc(self, esc_info):
+        try:
+            spd = esc_info[0]
+            self._esc_wheels = (int(spd[0]), int(spd[1]), int(spd[2]), int(spd[3]))
+        except Exception:
+            pass
+
     def get_telemetry(self) -> Dict[str, Any]:
         return {
             "odo_x": float(self._odo_x - self._odo_x_offset),
@@ -231,6 +245,7 @@ class RoboMasterRobot(BaseRobot):
             "vel_wz": float(self._vel_wz),
             "imu_yaw": float(self._imu_yaw),
             "wheel_rpms": self._cmd_wheels,
+            "esc_rpms": self._esc_wheels,
             "battery": int(self._battery),
             "timestamp": time.time(),
         }
@@ -239,7 +254,7 @@ class RoboMasterRobot(BaseRobot):
         if not self._connected or self.ep_robot is None:
             return None
         try:
-            frame = self.ep_robot.camera.read_cv2_image(strategy="newest", timeout=0.4)
+            frame = self.ep_robot.camera.read_cv2_image(strategy="newest", timeout=0.5)
             if frame is not None:
                 self._last_frame = frame
             return self._last_frame
@@ -247,12 +262,12 @@ class RoboMasterRobot(BaseRobot):
             return self._last_frame
 
     def drive_wheels(self, w1: int, w2: int, w3: int, w4: int):
-        """Directly command individual wheel RPMs (FR, FL, RL, RR) without chassis.drive_speed."""
+        """Directly command individual wheel RPMs (FR, FL, RL, RR) at 50 Hz without timeout timers."""
         self._cmd_wheels = (int(w1), int(w2), int(w3), int(w4))
         if self._connected and self.ep_robot is not None:
             try:
                 self.ep_robot.chassis.drive_wheels(
-                    w1=int(w1), w2=int(w2), w3=int(w3), w4=int(w4), timeout=0.5
+                    w1=int(w1), w2=int(w2), w3=int(w3), w4=int(w4)
                 )
             except Exception as e:
                 print(f"[Drive Wheels Error]: {e}")
@@ -266,7 +281,9 @@ class RoboMasterRobot(BaseRobot):
         self._cmd_wheels = (0, 0, 0, 0)
         if self._connected and self.ep_robot is not None:
             try:
-                self.ep_robot.chassis.drive_wheels(w1=0, w2=0, w3=0, w4=0)
+                for _ in range(3):
+                    self.ep_robot.chassis.drive_wheels(w1=0, w2=0, w3=0, w4=0)
+                    time.sleep(0.01)
             except Exception:
                 pass
 

@@ -43,12 +43,13 @@ kalman_filter:
   p0_vel: 0.0100                # Initial velocity variance (~0.1 m/s std)
 
 motion:
-  v_cruise: 0.18                # Nominal cruise speed straight towards tag (m/s)
-  v_min: 0.04                   # Minimum crawl speed before final stop (m/s)
-  decel_distance: 0.40          # Distance over which robot smoothly ramps down speed (m)
-  kp_yaw: 0.70                  # Proportional gain for visual center alignment
-  kd_yaw: 0.05                  # Derivative gain for visual yaw damping
-  max_yaw_rate: 25.0            # Maximum rotational rate limit (deg/s)
+  v_cruise: 0.28                # Nominal cruise speed straight towards tag (m/s, ~80 RPM)
+  v_min: 0.14                   # Minimum crawl speed above M3508I stiction deadband (m/s, ~40 RPM)
+  decel_distance: 0.45          # Distance over which robot smoothly ramps down speed (m)
+  max_accel: 0.60               # Longitudinal slew-rate acceleration limit (m/s^2)
+  kp_yaw: 0.65                  # Proportional gain for visual center alignment
+  kd_yaw: 0.04                  # Derivative gain for visual yaw damping
+  max_yaw_rate: 20.0            # Maximum rotational rate limit (deg/s)
 
 hardware:
   conn_type: "ap"               # "ap" (Wi-Fi Access Point 192.168.2.1), "rndis" (USB cable), or "sta" (Router)

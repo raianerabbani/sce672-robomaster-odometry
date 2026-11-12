@@ -1,10 +1,11 @@
-"""Motion Controller for Straight-Line Approach and Controlled Stopping.
+"""Smooth Motion Controller for Straight-Line Approach and Controlled Stopping.
 
 SCE-672: Advanced Robotics, KFUPM
-Implements:
-- Closed-loop visual yaw heading alignment to ensure strict straight-line motion
-- Smooth deceleration profile as the robot approaches the target stopping distance
-- Automatic stop trigger and hold command upon reaching stopping distance.
+Redesigned with:
+- Slew-rate acceleration & braking shaping (prevents launch/brake wheel slip & jerk)
+- Above-stiction minimum approach velocity (avoids M3508I ESC low-RPM cogging)
+- Low-pass EMA filtering on visual bearing + deadband (eliminates steering wiggle)
+- Automatic stop trigger upon reaching stopping distance.
 """
 
 from typing import Tuple, Optional
@@ -12,46 +13,58 @@ import numpy as np
 
 
 class StraightLineMotionController:
-    """Controller guiding RoboMaster EP straight towards the detected tag."""
+    """Smooth 50 Hz controller guiding RoboMaster EP straight towards the detected tag."""
 
     def __init__(
         self,
         stop_distance: float = 0.40,
-        v_cruise: float = 0.18,
-        v_min: float = 0.04,
-        decel_distance: float = 0.40,
-        kp_yaw: float = 0.70,
-        kd_yaw: float = 0.05,
-        max_yaw_rate: float = 25.0,
+        v_cruise: float = 0.28,
+        v_min: float = 0.14,
+        decel_distance: float = 0.45,
+        max_accel: float = 0.60,
+        kp_yaw: float = 0.65,
+        kd_yaw: float = 0.04,
+        max_yaw_rate: float = 20.0,
+        yaw_deadband_deg: float = 1.2,
     ):
-        """Initialize motion controller.
+        """Initialize smooth motion controller.
 
         Args:
             stop_distance: Target stopping distance from robot reference point to tag (m).
-            v_cruise: Maximum forward cruising speed (m/s).
-            v_min: Minimum crawl speed during final approach (m/s).
-            decel_distance: Distance before stop_distance where braking begins (m).
-            kp_yaw: Proportional gain for yaw centering (deg/s per deg error).
-            kd_yaw: Derivative gain for yaw centering.
+            v_cruise: Nominal forward cruising speed (m/s, ~80 RPM).
+            v_min: Minimum smooth crawl speed before final stop (m/s, ~40 RPM, above ESC stiction).
+            decel_distance: Distance before stop_distance where smooth braking begins (m).
+            max_accel: Longitudinal slew-rate acceleration limit (m/s^2).
+            kp_yaw: Proportional gain for visual yaw centering (deg/s per deg error).
+            kd_yaw: Derivative gain for visual yaw damping.
             max_yaw_rate: Yaw rate saturation limit (deg/s).
+            yaw_deadband_deg: Bearing deadband (deg) within which wheels run identically for straight travel.
         """
         self.stop_distance = float(stop_distance)
         self.v_cruise = float(v_cruise)
         self.v_min = float(v_min)
         self.decel_distance = float(decel_distance)
+        self.max_accel = float(max_accel)
         self.kp_yaw = float(kp_yaw)
         self.kd_yaw = float(kd_yaw)
         self.max_yaw_rate = float(max_yaw_rate)
+        self.yaw_deadband_deg = float(yaw_deadband_deg)
 
-        self.last_bearing_deg: Optional[float] = None
+        self.vx_shaped: float = 0.0
+        self.wz_shaped: float = 0.0
+        self.bearing_filt: Optional[float] = None
+        self.last_bearing_filt: Optional[float] = None
         self.last_time: Optional[float] = None
-        self.target_reached = False
+        self.target_reached: bool = False
 
     def reset(self, stop_distance: Optional[float] = None):
         """Reset controller state for a new trial."""
         if stop_distance is not None:
             self.stop_distance = float(stop_distance)
-        self.last_bearing_deg = None
+        self.vx_shaped = 0.0
+        self.wz_shaped = 0.0
+        self.bearing_filt = None
+        self.last_bearing_filt = None
         self.last_time = None
         self.target_reached = False
 
@@ -61,63 +74,64 @@ class StraightLineMotionController:
         tag_bearing_deg: Optional[float],
         current_time: float,
     ) -> Tuple[float, float, float, bool]:
-        """Compute chassis velocities (vx, vy, wz).
+        """Compute smooth slew-rate-limited chassis velocities (vx, vy, wz)."""
+        if self.last_time is None:
+            dt = 0.020
+        else:
+            dt = float(np.clip(current_time - self.last_time, 0.005, 0.10))
+        self.last_time = current_time
 
-        Args:
-            current_distance: Estimated remaining distance to tag (m) from Kalman Filter.
-            tag_bearing_deg: Visual bearing to tag center in degrees (None if not visible).
-            current_time: Current timestamp (seconds).
-
-        Returns:
-            Tuple of (vx [m/s], vy [m/s], wz [deg/s], target_reached [bool]).
-        """
-        # Check stopping condition
+        # Stopping condition
         if current_distance <= self.stop_distance or self.target_reached:
             self.target_reached = True
+            self.vx_shaped = 0.0
+            self.wz_shaped = 0.0
             return 0.0, 0.0, 0.0, True
 
-        # Distance remaining until stopping point
+        # 1. Target longitudinal speed profile
         dist_to_stop = current_distance - self.stop_distance
-
-        # Longitudinal velocity profile:
-        # High cruise speed when far, smooth ramp down when approaching decel zone
         if dist_to_stop >= self.decel_distance:
-            vx = self.v_cruise
+            vx_target = self.v_cruise
         else:
-            # Linear deceleration ramp down to v_min
-            ratio = max(0.0, min(1.0, dist_to_stop / self.decel_distance))
-            vx = self.v_min + (self.v_cruise - self.v_min) * (ratio ** 1.2)
+            ratio = float(np.clip(dist_to_stop / max(self.decel_distance, 0.05), 0.0, 1.0))
+            # Smooth cosine-like ramp down to v_min (kept above ESC stiction deadband)
+            vx_target = self.v_min + (self.v_cruise - self.v_min) * (0.5 * (1.0 - np.cos(np.pi * ratio)))
 
-        # Lateral velocity is 0 (pure forward motion)
+        # Slew-rate limit longitudinal acceleration/deceleration
+        max_dv = self.max_accel * dt
+        self.vx_shaped = float(self.vx_shaped + np.clip(vx_target - self.vx_shaped, -max_dv, max_dv))
+
+        # 2. Pure forward motion (no lateral strafe)
         vy = 0.0
 
-        # Yaw steering alignment for straight-line tracking
+        # 3. Filtered visual yaw alignment (clockwise positive = turn right)
         if tag_bearing_deg is not None:
-            # Positive bearing means tag is to the right of camera center.
-            # Positive wz_deg in our Mecanum kinematics rotates clockwise (right):
-            # left wheels (w2, w3) spin faster than right wheels (w1, w4).
-            bearing_error = float(tag_bearing_deg)
+            raw_b = float(tag_bearing_deg)
+            if self.bearing_filt is None:
+                self.bearing_filt = raw_b
+            else:
+                self.bearing_filt = 0.25 * raw_b + 0.75 * self.bearing_filt
 
-            # Derivative of bearing
             bearing_rate = 0.0
-            if self.last_bearing_deg is not None and self.last_time is not None:
-                dt = current_time - self.last_time
-                if dt > 0.001:
-                    bearing_rate = (bearing_error - self.last_bearing_deg) / dt
+            if self.last_bearing_filt is not None and dt > 0.001:
+                bearing_rate = (self.bearing_filt - self.last_bearing_filt) / dt
+            self.last_bearing_filt = self.bearing_filt
 
-            wz = +(self.kp_yaw * bearing_error + self.kd_yaw * bearing_rate)
-
-            # Saturate yaw rate
-            wz = float(np.clip(wz, -self.max_yaw_rate, self.max_yaw_rate))
-
-            # Deadband to eliminate jitter when nearly aligned
-            if abs(bearing_error) < 0.6:
-                wz = 0.0
-
-            self.last_bearing_deg = bearing_error
+            if abs(self.bearing_filt) < self.yaw_deadband_deg:
+                wz_target = 0.0
+            else:
+                # Subtract deadband smoothly so transition is continuous
+                err_eff = self.bearing_filt - np.sign(self.bearing_filt) * self.yaw_deadband_deg
+                wz_target = float(np.clip(
+                    self.kp_yaw * err_eff + self.kd_yaw * bearing_rate,
+                    -self.max_yaw_rate,
+                    self.max_yaw_rate
+                ))
         else:
-            # If tag momentarily lost, do not rotate; maintain straight forward heading
-            wz = 0.0
+            # Tag momentarily unseen: decay yaw rate smoothly to 0 to hold straight heading
+            wz_target = 0.0
 
-        self.last_time = current_time
-        return float(vx), float(vy), float(wz), False
+        max_dwz = 90.0 * dt
+        self.wz_shaped = float(self.wz_shaped + np.clip(wz_target - self.wz_shaped, -max_dwz, max_dwz))
+
+        return float(self.vx_shaped), float(vy), float(self.wz_shaped), False

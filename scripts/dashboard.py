@@ -108,12 +108,13 @@ class RoboMasterDashboard:
         )
         self.controller = StraightLineMotionController(
             stop_distance=exp_cfg.get("stop_distance", 0.40),
-            v_cruise=mot_cfg.get("v_cruise", 0.18),
-            v_min=mot_cfg.get("v_min", 0.04),
-            decel_distance=mot_cfg.get("decel_distance", 0.40),
-            kp_yaw=mot_cfg.get("kp_yaw", 0.70),
-            kd_yaw=mot_cfg.get("kd_yaw", 0.05),
-            max_yaw_rate=mot_cfg.get("max_yaw_rate", 25.0),
+            v_cruise=mot_cfg.get("v_cruise", 0.28),
+            v_min=mot_cfg.get("v_min", 0.14),
+            decel_distance=mot_cfg.get("decel_distance", 0.45),
+            max_accel=mot_cfg.get("max_accel", 0.60),
+            kp_yaw=mot_cfg.get("kp_yaw", 0.65),
+            kd_yaw=mot_cfg.get("kd_yaw", 0.04),
+            max_yaw_rate=mot_cfg.get("max_yaw_rate", 20.0),
         )
         self.trial_mgr = TrialManager(
             output_dir=os.path.join(WORKSPACE_ROOT, "results"),
@@ -122,6 +123,15 @@ class RoboMasterDashboard:
         )
         self.next_trial_id = 1
         self.trial_start_time = 0.0
+
+        # Async camera/vision state (decoupled from 50 Hz wheel control loop)
+        self.frame_lock = threading.Lock()
+        self.det_seq = 0
+        self.last_det_seq = 0
+        self.zero_stop_burst = 0
+        self.teleop_vx_shaped = 0.0
+        self.teleop_vy_shaped = 0.0
+        self.teleop_wz_shaped = 0.0
 
         # Latest UI snapshot
         self.latest_frame = None
@@ -136,9 +146,11 @@ class RoboMasterDashboard:
         self._build_ui(exp_cfg, tag_cfg)
         self._bind_keyboard()
 
-        # Start worker loop & UI refresh timer
-        self.worker_thread = threading.Thread(target=self._robot_loop, daemon=True)
-        self.worker_thread.start()
+        # Start decoupled 50 Hz control thread & async camera/vision thread
+        self.ctrl_thread = threading.Thread(target=self._control_loop, daemon=True)
+        self.cam_thread = threading.Thread(target=self._camera_loop, daemon=True)
+        self.ctrl_thread.start()
+        self.cam_thread.start()
         self.root.after(33, self._update_ui)
 
     def _load_config(self) -> dict:
@@ -620,45 +632,78 @@ class RoboMasterDashboard:
         generate_report()
         messagebox.showinfo("Report Compiled", "Generated PDF report at report/RoboMaster_Odometry_Report.pdf.")
 
-    def _robot_loop(self):
-        last_time = time.time()
+    def _camera_loop(self):
+        """Asynchronous camera acquisition and tag detection thread (never blocks 50 Hz wheels)."""
         while self.running:
-            now = time.time()
-            dt = max(0.005, now - last_time)
-            last_time = now
+            robot_ref = self.robot if self.connected else None
+            if robot_ref is None:
+                time.sleep(0.05)
+                continue
+
+            frame = robot_ref.get_frame()
+            if frame is None:
+                time.sleep(0.02)
+                continue
+
+            det = self.detector.detect(frame)
+            vis_frame = self.detector.draw_detection(frame, det)
+            h, w = vis_frame.shape[:2]
+            cv2.line(vis_frame, (w // 2 - 15, h // 2), (w // 2 + 15, h // 2), (200, 200, 200), 1)
+            cv2.line(vis_frame, (w // 2, h // 2 - 15), (w // 2, h // 2 + 15), (200, 200, 200), 1)
+
+            with self.frame_lock:
+                self.latest_frame = vis_frame
+                self.latest_det = det
+                self.det_seq += 1
+                if self.recording and self.video_writer is not None:
+                    self.video_writer.write(cv2.resize(vis_frame, (1280, 720)))
+
+            time.sleep(0.01)
+
+    def _control_loop(self):
+        """50 Hz (dt=0.020 s) real-time wheel control & Kalman prediction/correction loop."""
+        dt_target = 0.020
+        last_time = time.time()
+
+        while self.running:
+            loop_start = time.time()
+            dt = float(np.clip(loop_start - last_time, 0.005, 0.08))
+            last_time = loop_start
 
             with self.lock:
                 if not self.connected or self.robot is None:
-                    time.sleep(0.05)
+                    time.sleep(0.04)
                     continue
 
                 telemetry = self.robot.get_telemetry()
-                frame = self.robot.get_frame()
-                det = self.detector.detect(frame) if frame is not None else TagDetection()
+                with self.frame_lock:
+                    det = self.latest_det
+                    new_vision = (self.det_seq != self.last_det_seq)
+                    self.last_det_seq = self.det_seq
+
                 mode = self.control_mode
 
                 if mode == "AUTO":
+                    # 1. Prediction at 50 Hz via wheel odometry
                     self.kf.predict(odo_pos=telemetry["odo_x"], dt=dt)
-                    if det.detected:
+
+                    # 2. Sensor correction whenever a new camera tag detection arrives
+                    if new_vision and det.detected:
                         self.kf.correct(visual_distance_raw=det.distance)
-                        bearing = det.bearing_deg
-                    else:
-                        bearing = None
+                    bearing = det.bearing_deg if det.detected else None
 
                     kf_state = self.kf.get_state()
                     vx, vy, wz, reached = self.controller.compute_velocity(
                         current_distance=kf_state.distance,
                         tag_bearing_deg=bearing,
-                        current_time=now
+                        current_time=loop_start
                     )
-                    w1, w2, w3, w4 = mecanum_inverse_kinematics(vx, vy, wz)
-                    self.robot.drive_wheels(w1, w2, w3, w4)
 
                     cam_offset = self.kf.camera_to_front_offset
                     true_d = (telemetry["true_distance"] - cam_offset) if "true_distance" in telemetry else None
                     self.trial_mgr.log_sample(
                         pure_odo_dist=kf_state.pure_odometry_distance,
-                        visual_dist=det.distance if det.detected else None,
+                        visual_dist=det.distance if (new_vision and det.detected) else None,
                         kf_dist=kf_state.distance,
                         kf_vel=kf_state.velocity,
                         cov_pos=kf_state.variance_pos,
@@ -671,48 +716,67 @@ class RoboMasterDashboard:
                     )
 
                     if reached:
-                        self.robot.stop()
+                        self.zero_stop_burst = 6
+                        self.robot.drive_wheels(0, 0, 0, 0)
                         self.control_mode = "AWAITING_TAPE"
                         self.status_headline = f"TRIAL {self.next_trial_id} COMPLETE — ENTER TAPE MEASUREMENT"
                         self.status_detail = f"Robot stopped at KF estimate {kf_state.distance:.4f} m. Measure actual distance with tape and click 'Save Trial'."
-                    elif det.detected:
-                        self.status_headline = f"AUTO: TRACKING {det.tag_type} {det.tag_id}"
-                        self.status_detail = f"Predicting via wheel odometry | Correcting with {det.tag_type} {det.tag_id} (z={det.distance:.3f}m, bearing={det.bearing_deg:+.1f}°)."
                     else:
-                        self.status_headline = "AUTO: ODOMETRY DEAD-RECKONING (Tag Not Visible)"
-                        self.status_detail = "Tag temporarily out of view — propagating position via Mecanum wheel encoders."
+                        self.zero_stop_burst = 6
+                        w1, w2, w3, w4 = mecanum_inverse_kinematics(vx, vy, wz)
+                        self.robot.drive_wheels(w1, w2, w3, w4)
+                        if det.detected:
+                            self.status_headline = f"AUTO: TRACKING {det.tag_type} {det.tag_id}"
+                            self.status_detail = f"50 Hz odometry prediction + {det.tag_type} {det.tag_id} correction (z={det.distance:.3f}m, bearing={det.bearing_deg:+.1f}°)."
+                        else:
+                            self.status_headline = "AUTO: ODOMETRY DEAD-RECKONING (Tag Not Visible)"
+                            self.status_detail = "Tag temporarily out of view — propagating position via Mecanum wheel encoders."
 
                 elif mode == "TELEOP":
-                    w1, w2, w3, w4 = mecanum_inverse_kinematics(self.teleop_vx, self.teleop_vy, self.teleop_wz)
-                    self.robot.drive_wheels(w1, w2, w3, w4)
+                    # Smooth slew-rate shaping for teleop (no sudden jerks)
+                    max_dv = 2.0 * dt
+                    max_dwz = 240.0 * dt
+                    self.teleop_vx_shaped += float(np.clip(self.teleop_vx - self.teleop_vx_shaped, -max_dv, max_dv))
+                    self.teleop_vy_shaped += float(np.clip(self.teleop_vy - self.teleop_vy_shaped, -max_dv, max_dv))
+                    self.teleop_wz_shaped += float(np.clip(self.teleop_wz - self.teleop_wz_shaped, -max_dwz, max_dwz))
+
+                    is_moving = (
+                        abs(self.teleop_vx_shaped) > 0.015
+                        or abs(self.teleop_vy_shaped) > 0.015
+                        or abs(self.teleop_wz_shaped) > 0.5
+                    )
+                    if is_moving:
+                        self.zero_stop_burst = 6
+                        w1, w2, w3, w4 = mecanum_inverse_kinematics(
+                            self.teleop_vx_shaped, self.teleop_vy_shaped, self.teleop_wz_shaped
+                        )
+                        self.robot.drive_wheels(w1, w2, w3, w4)
+                        self.status_detail = f"Manual Teleop wheels: FR={w1}, FL={w2}, RL={w3}, RR={w4} RPM."
+                    elif self.zero_stop_burst > 0:
+                        self.zero_stop_burst -= 1
+                        self.robot.drive_wheels(0, 0, 0, 0)
+                        self.status_detail = "Manual Teleop: Stopped (0 RPM)."
                     kf_state = self.kf.get_state()
-                    self.status_detail = f"Manual Teleop commanding wheels: FR={w1}, FL={w2}, RL={w3}, RR={w4} RPM."
 
                 else:
-                    # IDLE or AWAITING_TAPE: still show live tag detection on camera feed
+                    # IDLE or AWAITING_TAPE: finish any pending zero-stop burst without flooding bus
+                    if self.zero_stop_burst > 0:
+                        self.zero_stop_burst -= 1
+                        self.robot.drive_wheels(0, 0, 0, 0)
                     kf_state = self.kf.get_state()
 
-                # Render detection overlay on frame
-                if frame is not None:
-                    vis_frame = self.detector.draw_detection(frame, det)
-                    h, w = vis_frame.shape[:2]
-                    cv2.line(vis_frame, (w // 2 - 15, h // 2), (w // 2 + 15, h // 2), (200, 200, 200), 1)
-                    cv2.line(vis_frame, (w // 2, h // 2 - 15), (w // 2, h // 2 + 15), (200, 200, 200), 1)
-                    if self.recording and self.video_writer is not None:
-                        self.video_writer.write(cv2.resize(vis_frame, (1280, 720)))
-                    self.latest_frame = vis_frame
-
-                self.latest_det = det
                 self.latest_kf = kf_state
                 self.latest_wheels = telemetry.get("wheel_rpms", (0, 0, 0, 0))
                 self.latest_battery = telemetry.get("battery", 0)
 
-            time.sleep(0.03)
+            elapsed = time.time() - loop_start
+            time.sleep(max(0.001, dt_target - elapsed))
 
     def _update_ui(self):
-        with self.lock:
+        with self.frame_lock:
             frame = self.latest_frame.copy() if self.latest_frame is not None else None
             det = self.latest_det
+        with self.lock:
             kf_s = self.latest_kf
             wheels = self.latest_wheels
             bat = self.latest_battery

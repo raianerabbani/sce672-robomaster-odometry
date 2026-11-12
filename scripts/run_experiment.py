@@ -132,12 +132,13 @@ def run_experiment(
 
     controller = StraightLineMotionController(
         stop_distance=stop_dist,
-        v_cruise=mot_cfg.get("v_cruise", 0.18),
-        v_min=mot_cfg.get("v_min", 0.04),
-        decel_distance=mot_cfg.get("decel_distance", 0.40),
-        kp_yaw=mot_cfg.get("kp_yaw", 0.70),
-        kd_yaw=mot_cfg.get("kd_yaw", 0.05),
-        max_yaw_rate=mot_cfg.get("max_yaw_rate", 25.0)
+        v_cruise=mot_cfg.get("v_cruise", 0.28),
+        v_min=mot_cfg.get("v_min", 0.14),
+        decel_distance=mot_cfg.get("decel_distance", 0.45),
+        max_accel=mot_cfg.get("max_accel", 0.60),
+        kp_yaw=mot_cfg.get("kp_yaw", 0.65),
+        kd_yaw=mot_cfg.get("kd_yaw", 0.04),
+        max_yaw_rate=mot_cfg.get("max_yaw_rate", 20.0)
     )
 
     trial_mgr = TrialManager(
