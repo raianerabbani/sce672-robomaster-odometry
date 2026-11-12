@@ -43,7 +43,7 @@ def run_experiment(
     num_trials: int = 10,
     start_distance: float = 1.50,
     stop_distance: float = 0.40,
-    tag_type: str = "qr",
+    tag_type: str = "apriltag",
     tag_size: float = 0.15,
     headless: bool = False,
     record_video: bool = True,
@@ -59,10 +59,13 @@ def run_experiment(
     hw_cfg = cfg.get("hardware", {})
 
     # Override defaults with config if not explicitly set
+    tag_cfg = cfg.get("tag", {})
     start_dist = float(start_distance or exp_cfg.get("start_distance", 1.50))
     stop_dist = float(stop_distance or exp_cfg.get("stop_distance", 0.40))
     trials_total = int(num_trials or exp_cfg.get("num_trials", 10))
-    tag_sz = float(tag_size or cfg.get("tag", {}).get("physical_size", 0.15))
+    tag_sz = float(tag_size or tag_cfg.get("physical_size", 0.15))
+    apriltag_family = str(tag_cfg.get("apriltag_family", "auto"))
+    target_ids = tag_cfg.get("target_ids", [1, 2, 3])
     cam_offset = float(exp_cfg.get("camera_to_front_offset", 0.05))
 
     print("\n==================================================================")
@@ -85,7 +88,7 @@ def run_experiment(
             print("[Error] Could not connect to physical RoboMaster EP. Check Wi-Fi connection.")
             return
     elif mode == "sim":
-        robot = MockRobot(start_distance=start_dist, tag_size=tag_sz)
+        robot = MockRobot(start_distance=start_dist, tag_size=tag_sz, tag_type=tag_type, tag_id=target_ids[0] if target_ids else 1)
         robot.connect()
     else:  # "auto"
         print("[Auto-Detect] Attempting connection to RoboMaster EP Core...")
@@ -98,7 +101,7 @@ def run_experiment(
         except Exception as e:
             print(f"[Auto-Detect] Robot not available ({e}).")
             print("[Auto-Detect] Switching seamlessly to High-Fidelity Simulator.")
-            robot = MockRobot(start_distance=start_dist, tag_size=tag_sz)
+            robot = MockRobot(start_distance=start_dist, tag_size=tag_sz, tag_type=tag_type, tag_id=target_ids[0] if target_ids else 1)
             robot.connect()
 
     # 2. Camera Intrinsics
@@ -112,7 +115,9 @@ def run_experiment(
     detector = TagDetector(
         tag_type=tag_type,
         tag_size=tag_sz,
-        camera_matrix=K
+        camera_matrix=K,
+        apriltag_family=apriltag_family,
+        target_ids=target_ids
     )
 
     kf = OdometryVisionKalmanFilter(
@@ -316,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--trials", type=int, default=10, help="Number of repeat trials (default 10)")
     parser.add_argument("--start-dist", type=float, default=1.50, help="Starting distance in meters (default 1.50)")
     parser.add_argument("--stop-dist", type=float, default=0.40, help="Target stopping distance in meters (default 0.40)")
-    parser.add_argument("--tag-type", choices=["qr", "aruco", "auto"], default="qr", help="Tag detection mode")
+    parser.add_argument("--tag-type", choices=["apriltag", "qr", "aruco", "auto"], default="apriltag", help="Tag detection mode")
     parser.add_argument("--tag-size", type=float, default=0.15, help="Physical tag side length in meters (default 0.15)")
     parser.add_argument("--headless", action="store_true", help="Run without graphical display window")
     parser.add_argument("--no-record", action="store_true", help="Disable demonstration video recording")

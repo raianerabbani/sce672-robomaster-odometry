@@ -234,13 +234,17 @@ class MockRobot(BaseRobot):
     def __init__(
         self,
         start_distance: float = 1.50,
-        tag_size: float = 0.12,
+        tag_size: float = 0.15,
+        tag_type: str = "apriltag",
+        tag_id: int = 1,
         qr_payload: str = "SCE672_ROBOMASTER_TARGET",
         slip_ratio: float = 0.05,
         fps: int = 30
     ):
         self.start_distance = float(start_distance)
         self.tag_size = float(tag_size)
+        self.tag_type = tag_type.lower()
+        self.tag_id = int(tag_id)
         self.qr_payload = qr_payload
         self.slip_ratio = float(slip_ratio)  # 5% Mecanum slip baseline
         self.fps = fps
@@ -262,12 +266,16 @@ class MockRobot(BaseRobot):
         self.last_update_time = time.time()
         self._connected = False
 
-        # Pre-render high-res QR code image for synthetic camera projection
-        enc = cv2.QRCodeEncoder.create()
-        qr_matrix = enc.encode(self.qr_payload)
-        qr_scaled = cv2.resize(qr_matrix, (300, 300), interpolation=cv2.INTER_NEAREST)
-        qr_gray = cv2.copyMakeBorder(qr_scaled, 45, 45, 45, 45, cv2.BORDER_CONSTANT, value=255)
-        self.qr_img = cv2.cvtColor(qr_gray, cv2.COLOR_GRAY2BGR)
+        # Pre-render high-res tag image (AprilTag or QR) for synthetic camera projection
+        if self.tag_type in ("apriltag", "auto"):
+            at_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+            tag_scaled = cv2.aruco.generateImageMarker(at_dict, self.tag_id, 300)
+        else:
+            enc = cv2.QRCodeEncoder.create()
+            qr_matrix = enc.encode(self.qr_payload)
+            tag_scaled = cv2.resize(qr_matrix, (300, 300), interpolation=cv2.INTER_NEAREST)
+        tag_gray = cv2.copyMakeBorder(tag_scaled, 45, 45, 45, 45, cv2.BORDER_CONSTANT, value=255)
+        self.qr_img = cv2.cvtColor(tag_gray, cv2.COLOR_GRAY2BGR)
 
         # Camera intrinsics (720p: 1280x720)
         self.width = 1280

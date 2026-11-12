@@ -62,7 +62,12 @@ def calibrate(
         robot = MockRobot(start_distance=true_distance, tag_size=tag_size)
         robot.connect()
 
-    detector = TagDetector(tag_type=tag_type, tag_size=tag_size)
+    detector = TagDetector(
+        tag_type=tag_type,
+        tag_size=tag_size,
+        apriltag_family=cfg.get("tag", {}).get("apriltag_family", "auto"),
+        target_ids=cfg.get("tag", {}).get("target_ids", [1, 2, 3])
+    )
     print("\n[Calibration] Streaming camera frames... Align tag in camera view.")
     print("Collecting 30 consecutive valid frames for calibration...")
 
@@ -119,7 +124,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["robot", "sim", "auto"], default="auto")
     parser.add_argument("--dist", type=float, default=1.00, help="Tape-measured distance to tag in meters")
     parser.add_argument("--tag-size", type=float, default=0.15, help="Physical tag side length in meters")
-    parser.add_argument("--tag-type", choices=["qr", "aruco"], default="qr")
+    parser.add_argument("--tag-type", choices=["apriltag", "qr", "aruco"], default="apriltag")
     args = parser.parse_args()
 
     calibrate(

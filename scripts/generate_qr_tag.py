@@ -109,4 +109,11 @@ if __name__ == "__main__":
     generate_printable_qr_tag(target_size_cm=12.0, output_path="tags/qr_target_12cm.png")
     generate_printable_aruco_tag(marker_id=0, target_size_cm=15.0, output_path="tags/aruco_target_15cm.png")
     generate_printable_aruco_tag(marker_id=0, target_size_cm=12.0, output_path="tags/aruco_target_12cm.png")
+    for tid in [1, 2, 3]:
+        generate_printable_aruco_tag(
+            marker_id=tid,
+            dict_name="DICT_APRILTAG_36h11",
+            target_size_cm=15.0,
+            output_path=f"tags/apriltag_36h11_id{tid}_15cm.png"
+        )
     print("[Tag Generator] All tags successfully generated in 'tags/' folder.")

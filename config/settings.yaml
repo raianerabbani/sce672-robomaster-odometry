@@ -10,9 +10,11 @@ experiment:
   trial_timeout: 25.0           # Maximum seconds allowed per trial before safety abort
 
 tag:
-  tag_type: "qr"                # Detection mode: "qr" (standard QR tag), "aruco", or "dji_marker"
-  physical_size: 0.12           # Width and height of the active QR tag in meters (12 cm)
-  payload: "SCE672_ROBOMASTER_TARGET" # Text encoded in QR code
+  tag_type: "apriltag"          # Detection mode: "apriltag", "qr", "aruco", or "auto"
+  physical_size: 0.15           # Outer black-square width/height of tag in meters (adjust to match your printed tag)
+  apriltag_family: "auto"       # "DICT_APRILTAG_36h11", "DICT_APRILTAG_25h9", "DICT_APRILTAG_16h5", or "auto"
+  target_ids: [1, 2, 3]         # Allowed AprilTag IDs (1, 2, or 3)
+  payload: "SCE672_ROBOMASTER_TARGET" # Text encoded if using QR code
   aruco_dict: "DICT_4X4_50"     # ArUco dictionary if using ArUco
   aruco_id: 0                   # ArUco ID if using ArUco
 

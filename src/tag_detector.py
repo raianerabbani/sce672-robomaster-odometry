@@ -34,28 +34,33 @@ class TagDetector:
 
     def __init__(
         self,
-        tag_type: str = "qr",
-        tag_size: float = 0.12,
+        tag_type: str = "apriltag",
+        tag_size: float = 0.15,
         camera_matrix: Optional[np.ndarray] = None,
         dist_coeffs: Optional[np.ndarray] = None,
         aruco_dict_name: str = "DICT_4X4_50",
         aruco_id: int = 0,
+        apriltag_family: str = "DICT_APRILTAG_36h11",
+        target_ids: Optional[List[int]] = None,
         expected_qr_payload: Optional[str] = None,
     ):
         """Initialize tag detector.
 
         Args:
-            tag_type: "qr", "aruco", or "auto" (tries QR first, falls back to ArUco).
-            tag_size: Physical width and height of tag square in meters.
+            tag_type: "apriltag", "qr", "aruco", or "auto".
+            tag_size: Physical width and height of tag outer black square in meters.
             camera_matrix: 3x3 intrinsic matrix.
             dist_coeffs: Lens distortion coefficients.
             aruco_dict_name: ArUco dictionary identifier.
             aruco_id: ArUco marker ID to match (None to match any).
+            apriltag_family: AprilTag dictionary name (e.g. "DICT_APRILTAG_36h11") or "auto".
+            target_ids: List of allowed tag IDs (e.g. [1, 2, 3]) or None to match any.
             expected_qr_payload: Specific string to match in QR payload (None to accept any).
         """
         self.tag_type = tag_type.lower()
         self.tag_size = float(tag_size)
         self.aruco_id = aruco_id
+        self.target_ids = list(target_ids) if target_ids is not None else None
         self.expected_qr_payload = expected_qr_payload
         # Ratio of detected finder-pattern quad to outer physical QR dimensions (OpenCV QRCodeDetector standard)
         self.qr_scale_factor = 1.0 / 1.20833
@@ -97,6 +102,23 @@ class TagDetector:
         except Exception:
             self.aruco_detector = None
 
+        # Initialize AprilTag detector(s) with sub-pixel corner refinement
+        self.apriltag_detectors = []
+        families = (
+            ["DICT_APRILTAG_36h11", "DICT_APRILTAG_25h9", "DICT_APRILTAG_16h5"]
+            if apriltag_family.lower() == "auto"
+            else [apriltag_family]
+        )
+        for fam in families:
+            try:
+                dict_attr = getattr(cv2.aruco, fam)
+                at_dict = cv2.aruco.getPredefinedDictionary(dict_attr)
+                at_params = cv2.aruco.DetectorParameters()
+                at_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
+                self.apriltag_detectors.append((fam, cv2.aruco.ArucoDetector(at_dict, at_params)))
+            except Exception:
+                pass
+
     def detect(self, frame: np.ndarray) -> TagDetection:
         """Detect tag in frame and estimate 3D pose and distance.
 
@@ -110,6 +132,12 @@ class TagDetector:
             return TagDetection()
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+
+        # Try AprilTag detection
+        if self.tag_type in ("apriltag", "auto") and self.apriltag_detectors:
+            det = self._detect_apriltag(gray)
+            if det.detected:
+                return det
 
         # Try QR detection
         if self.tag_type in ("qr", "auto"):
@@ -151,6 +179,21 @@ class TagDetector:
                 continue
 
             return self._compute_pose_from_corners(corners, tag_type="QR", tag_id=payload)
+
+        return TagDetection()
+
+    def _detect_apriltag(self, gray: np.ndarray) -> TagDetection:
+        """Detect AprilTag marker (e.g. DICT_APRILTAG_36h11 IDs 1, 2, 3)."""
+        for fam_name, detector in self.apriltag_detectors:
+            corners_list, ids, _ = detector.detectMarkers(gray)
+            if ids is None or len(corners_list) == 0:
+                continue
+
+            for i, marker_id in enumerate(ids.flatten()):
+                if self.target_ids is not None and int(marker_id) not in self.target_ids:
+                    continue
+                corners = corners_list[i].reshape(4, 2).astype(np.float64)
+                return self._compute_pose_from_corners(corners, tag_type="AprilTag", tag_id=f"ID-{int(marker_id)}")
 
         return TagDetection()
 
