@@ -1,0 +1,55 @@
+# Configuration for RoboMaster EP Phase 3 Odometry Project
+# SCE-672: Advanced Robotics, KFUPM
+
+experiment:
+  start_distance: 1.50          # Starting distance in meters (specified 1.0 to 2.0 m)
+  stop_distance: 0.40           # Selected stopping distance in meters (< start_distance)
+  num_trials: 10                # Number of repeat trials (8 to 10 trials required)
+  reference_point: "front_bumper" # Physical reference point on the robot
+  camera_to_front_offset: 0.05  # Distance from camera optical center to front bumper (m)
+  trial_timeout: 25.0           # Maximum seconds allowed per trial before safety abort
+
+tag:
+  tag_type: "qr"                # Detection mode: "qr" (standard QR tag), "aruco", or "dji_marker"
+  physical_size: 0.12           # Width and height of the active QR tag in meters (12 cm)
+  payload: "SCE672_ROBOMASTER_TARGET" # Text encoded in QR code
+  aruco_dict: "DICT_4X4_50"     # ArUco dictionary if using ArUco
+  aruco_id: 0                   # ArUco ID if using ArUco
+
+camera:
+  stream_resolution: "720p"     # RoboMaster camera resolution: "720p" (1280x720) or "360p" (640x360)
+  width: 1280
+  height: 720
+  # RoboMaster EP Wide-Angle Camera Calibration parameters (720p mode)
+  # Diagonal FOV ~120 deg, Horizontal FOV ~96 deg
+  fx: 580.0
+  fy: 580.0
+  cx: 640.0
+  cy: 360.0
+  k1: 0.0
+  k2: 0.0
+
+kalman_filter:
+  # State vector: x = [d, v]^T (remaining distance to tag, forward velocity)
+  # Process noise covariance Q
+  q_pos: 0.0009                 # Process variance for position (reflects wheel slippage: ~0.03 m std)
+  q_vel: 0.0025                 # Process variance for velocity (~0.05 m/s std)
+  # Measurement noise covariance R (visual tag distance noise)
+  r_vis: 0.0016                 # Visual distance measurement variance (~0.04 m std)
+  # Initial state covariance P0
+  p0_pos: 0.0025                # Initial position variance (~0.05 m std)
+  p0_vel: 0.0100                # Initial velocity variance (~0.1 m/s std)
+
+motion:
+  v_cruise: 0.18                # Nominal cruise speed straight towards tag (m/s)
+  v_min: 0.04                   # Minimum crawl speed before final stop (m/s)
+  decel_distance: 0.40          # Distance over which robot smoothly ramps down speed (m)
+  kp_yaw: 0.70                  # Proportional gain for visual center alignment
+  kd_yaw: 0.05                  # Derivative gain for visual yaw damping
+  max_yaw_rate: 25.0            # Maximum rotational rate limit (deg/s)
+
+hardware:
+  conn_type: "ap"               # "ap" (Wi-Fi Access Point 192.168.2.1), "rndis" (USB cable), or "sta" (Router)
+  telemetry_rate: 50            # Telemetry subscription frequency (Hz)
+  led_color: [0, 220, 100]      # Green LED for ready/tracking
+  led_stop_color: [0, 100, 255] # Blue LED when target reached

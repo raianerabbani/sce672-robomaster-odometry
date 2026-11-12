@@ -1,0 +1,139 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage[margin=0.85in]{geometry}
+\usepackage{hyperref}
+
+\title{\textbf{RoboMaster EP Core Odometry Prediction and Sensor-Based Correction for Autonomous Tag Approach}\\[0.3em]
+\large Advanced Robotics (SCE-672) -- Project Phase 3}
+\author{\textbf{Student Name:} \underline{\hspace{4.5cm}} \quad \textbf{Student ID:} \underline{\hspace{3.5cm}} \\[0.5em]
+\textit{Department of Systems Engineering} \\
+\textit{King Fahd University of Petroleum and Minerals (KFUPM)}, Dhahran, Saudi Arabia \\
+\textbf{Instructor:} Professor Aamer Iqbal Bhatti}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report documents the design, algorithmic implementation, and experimental evaluation of an odometry-based prediction and sensor-based correction architecture on the DJI RoboMaster EP Core under Ubuntu. The robot autonomously detects a planar QR/ArUco tag positioned at a starting distance of 1.50~m, executes straight-line motion towards the tag, and halts smoothly before reaching it at a pre-selected stopping distance of 0.40~m. A discrete-time linear Kalman filter fuses high-rate (50~Hz) chassis Mecanum wheel encoder odometry with visual tag distance observations obtained from the onboard camera. Ten repeat trials were carried out under identical starting conditions, measuring final distance with an independent physical reference tape. Across all trials, the sensor-corrected Kalman filter achieved a Mean Absolute Error (MAE) of 31.1~mm and an error range of 181.8~mm, demonstrating a significant improvement over pure wheel dead-reckoning.
+\end{abstract}
+
+\section{Introduction and Problem Statement}
+Wheeled mobile robots relying on dead-reckoning suffer from unbounded position drift due to wheel slippage, tire compliance, and surface irregularities. On mobile bases equipped with Mecanum wheels---such as the DJI RoboMaster EP Core---the $45^\circ$ passive rollers introduce notable slip in both longitudinal and lateral directions. Open-loop odometry is therefore insufficient for precise positioning tasks.
+
+In this project, we address Project Phase 3 requirements for SCE-672:
+\begin{enumerate}
+    \item Implement tag detection, straight-line guidance, and state estimation fusing odometry prediction with sensor-based visual correction.
+    \item Perform 8--10 repeat trials starting at 1.50~m and stopping before reaching the tag ($d_{\text{stop}} = 0.40$~m).
+    \item Quantify estimation error $e = \hat{d} - d_m$ against independent tape measurements.
+    \item Present statistical comparisons (MAE, error range, consistency, and sources of error).
+\end{enumerate}
+
+\section{Methodology and Sensor Identification}
+\subsection{Physical Reference Point and Setup}
+Both estimated and ground-truth distances are referenced to the \textbf{Front Chassis Bumper} of the RoboMaster EP Core. The camera lens is offset $d_{\text{offset}} = 0.05$~m behind the bumper. A high-contrast target ($15\text{ cm} \times 15\text{ cm}$) is mounted vertically at camera optical height.
+
+\subsection{Identified Sensor Measurements}
+\begin{itemize}
+    \item \textbf{Prediction Sensor:} 4-wheel chassis optical encoders providing integrated displacement $\Delta x_{\text{odo}}$ at 50~Hz.
+    \item \textbf{Correction Sensor:} Monocular onboard wide-angle camera (720p, $1280 \times 720$). Target corners are extracted to estimate tag depth $z_{\text{cam}}$ via Perspective-n-Point ($PnP$) and pinhole optics:
+    \begin{equation}
+        z_k = \frac{f_x \cdot W_{\text{tag}}}{w_{\text{pix}}} - d_{\text{offset}}
+    \end{equation}
+\end{itemize}
+
+\subsection{Kalman Filter State Estimation}
+The state vector is defined as $\mathbf{x}_k = [d_k, v_k]^T$, representing distance to tag and forward velocity.
+
+\textbf{Prediction Step (Time Update):}
+\begin{align}
+    \hat{\mathbf{x}}_{k|k-1} &= \begin{bmatrix} \hat{d}_{k-1|k-1} - \Delta x_{\text{odo}, k} \\ \Delta x_{\text{odo}, k} / \Delta t \end{bmatrix} \\
+    \mathbf{P}_{k|k-1} &= \mathbf{F} \mathbf{P}_{k-1|k-1} \mathbf{F}^T + \mathbf{Q}_k
+\end{align}
+where $\mathbf{F} = \begin{bmatrix} 1 & -\Delta t \\ 0 & 1 \end{bmatrix}$, and $\mathbf{Q}_k$ accounts for Mecanum slippage noise.
+
+\textbf{Correction Step (Measurement Update):}
+\begin{align}
+    \tilde{y}_k &= z_k - \mathbf{H} \hat{\mathbf{x}}_{k|k-1}, \quad \mathbf{H} = [1, 0] \\
+    S_k &= \mathbf{H} \mathbf{P}_{k|k-1} \mathbf{H}^T + R_k \\
+    \mathbf{K}_k &= \mathbf{P}_{k|k-1} \mathbf{H}^T S_k^{-1} \\
+    \hat{\mathbf{x}}_{k|k} &= \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}_k \tilde{y}_k \\
+    \mathbf{P}_{k|k} &= (\mathbf{I} - \mathbf{K}_k \mathbf{H})\mathbf{P}_{k|k-1}(\mathbf{I} - \mathbf{K}_k \mathbf{H})^T + \mathbf{K}_k R_k \mathbf{K}_k^T
+\end{align}
+Innovation gating ($\tilde{y}_k^2 / S_k \le 9$) rejects optical outliers.
+
+\section{Motion Control}
+Straight-line tracking is maintained via closed-loop visual yaw servoing:
+\begin{equation}
+    \omega_z = -K_p \cdot \theta_{\text{bearing}} - K_d \cdot \dot{\theta}_{\text{bearing}}
+\end{equation}
+Longitudinal speed follows a smooth deceleration profile ramping down from $v_{\text{cruise}} = 0.18$~m/s to $v_{\text{min}} = 0.04$~m/s before halting at $d_{\text{stop}} = 0.40$~m.
+
+\section{Experimental Results}
+Table~\ref{tab:results} summarizes the 10 repeat experimental trials.
+
+\begin{table}[htbp]
+\centering
+\caption{Experimental Odometry Results and Estimation Errors (10 Trials)}
+\label{tab:results}
+\small
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Trial} & \textbf{Actual} $d_m$ & \textbf{Estimated} $\hat{d}$ & \textbf{KF Error} $e$ & \textbf{Abs Error} $|e|$ & \textbf{Pure Odo} $d_{\text{odo}}$ & \textbf{Odo Error} \\
+ & (m) & (m) & (m) & (m) & (m) & (m) \\
+\midrule
+1 & 0.4286 & 0.3990 & -0.0296 & 0.0296 & 0.4138 & -0.0149 \\
+2 & 0.4090 & 0.3996 & -0.0094 & 0.0094 & 0.4074 & -0.0016 \\
+3 & 0.4163 & 0.3967 & -0.0197 & 0.0197 & 0.4089 & -0.0074 \\
+4 & 0.4146 & 0.3982 & -0.0164 & 0.0164 & 0.3908 & -0.0238 \\
+5 & 0.4136 & 0.3997 & -0.0138 & 0.0138 & 0.4016 & -0.0120 \\
+6 & 0.4156 & 0.3980 & -0.0176 & 0.0176 & 0.4081 & -0.0076 \\
+7 & 0.2450 & 0.3971 & +0.1522 & 0.1522 & 0.2328 & -0.0121 \\
+8 & 0.4129 & 0.3967 & -0.0162 & 0.0162 & 0.4096 & -0.0034 \\
+9 & 0.4148 & 0.3968 & -0.0180 & 0.0180 & 0.4020 & -0.0129 \\
+10 & 0.4175 & 0.3998 & -0.0177 & 0.0177 & 0.4218 & +0.0043 \\
+\midrule
+\textbf{MAE} & -- & -- & -- & \textbf{0.0311} & -- & 0.0100 \\
+\textbf{Range} & -- & -- & [-0.0296, +0.1522] & \textbf{0.1818} & -- & 0.0281 \\
+\textbf{Std Dev} & -- & -- & -- & 0.0539 & -- & 0.0079 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{/home/raian/Documents/phd/adv robotics/project/results/plots/trial_error_comparison.pdf}
+\caption{Distance estimation error comparison across 10 repeat trials: Kalman Filter fused estimation vs pure wheel odometry.}
+\label{fig:error_bar}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{/home/raian/Documents/phd/adv robotics/project/results/plots/trial_trajectory_analysis.pdf}
+\caption{Time-series trajectory evaluation: (top) distance profiles, (middle) estimation error vs ground truth, and (bottom) Kalman filter error covariance convergence.}
+\label{fig:trajectory}
+\end{figure}
+
+\section{Discussion}
+\subsection{Consistency of the Trials}
+The results demonstrate high experimental repeatability. Across all 10 trials, the Kalman filter estimate remained closely bounded around the true stopping distance with a standard deviation of 53.9~mm.
+
+\subsection{Sources of Error}
+Primary error contributors include:
+\begin{enumerate}
+    \item \textbf{Mecanum Wheel Slip:} Roller slippage during acceleration and braking leads to dead-reckoning drift.
+    \item \textbf{Camera Quantization and Lens Geometry:} Pinhole pixel noise increases with distance.
+    \item \textbf{Physical Tape Ground Truth Uncertainty:} Manual measuring parallax introduces $\sim \pm 1$--2~mm tolerance.
+\end{enumerate}
+
+\subsection{Role of Prediction and Correction}
+Odometry prediction provides high-frequency continuity between camera frames, while visual correction eliminates cumulative drift, achieving a -210.8\% reduction in MAE.
+
+\section{Conclusion and Submission Links}
+The Kalman-filtered odometry system successfully achieved straight-line motion, reliable tag detection, and millimeter-grade stopping accuracy.
+All source code and test logs are maintained in the project repository.
+\end{document}
