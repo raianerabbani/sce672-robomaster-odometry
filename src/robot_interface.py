@@ -151,6 +151,7 @@ class RoboMasterRobot(BaseRobot):
         self._imu_pitch = 0.0
         self._imu_roll = 0.0
         self._battery = 100
+        self._cmd_wheels = (0, 0, 0, 0)
 
         self._last_frame = None
 
@@ -229,6 +230,7 @@ class RoboMasterRobot(BaseRobot):
             "vel_x": float(self._vel_x),
             "vel_wz": float(self._vel_wz),
             "imu_yaw": float(self._imu_yaw),
+            "wheel_rpms": self._cmd_wheels,
             "battery": int(self._battery),
             "timestamp": time.time(),
         }
@@ -246,6 +248,7 @@ class RoboMasterRobot(BaseRobot):
 
     def drive_wheels(self, w1: int, w2: int, w3: int, w4: int):
         """Directly command individual wheel RPMs (FR, FL, RL, RR) without chassis.drive_speed."""
+        self._cmd_wheels = (int(w1), int(w2), int(w3), int(w4))
         if self._connected and self.ep_robot is not None:
             try:
                 self.ep_robot.chassis.drive_wheels(
@@ -260,6 +263,7 @@ class RoboMasterRobot(BaseRobot):
         self.drive_wheels(w1, w2, w3, w4)
 
     def stop(self):
+        self._cmd_wheels = (0, 0, 0, 0)
         if self._connected and self.ep_robot is not None:
             try:
                 self.ep_robot.chassis.drive_wheels(w1=0, w2=0, w3=0, w4=0)
@@ -426,6 +430,7 @@ class MockRobot(BaseRobot):
     def drive_wheels(self, w1: int, w2: int, w3: int, w4: int):
         """Simulate individual wheel speed commands via Mecanum forward kinematics."""
         self._update_physics()
+        self._cmd_wheels = (int(w1), int(w2), int(w3), int(w4))
         vx, vy, wz_deg = mecanum_forward_kinematics(w1, w2, w3, w4)
         self.cmd_vx = float(vx)
         self.cmd_vy = float(vy)
@@ -436,6 +441,7 @@ class MockRobot(BaseRobot):
         self.drive_wheels(w1, w2, w3, w4)
 
     def stop(self):
+        self._cmd_wheels = (0, 0, 0, 0)
         self.cmd_vx = 0.0
         self.cmd_vy = 0.0
         self.cmd_wz = 0.0
@@ -453,6 +459,7 @@ class MockRobot(BaseRobot):
             "vel_x": float(self.cmd_vx),
             "vel_wz": float(self.cmd_wz),
             "imu_yaw": float(self.true_yaw),
+            "wheel_rpms": getattr(self, "_cmd_wheels", (0, 0, 0, 0)),
             "true_distance": float(self.true_distance),
             "true_x": float(self.true_x),
             "battery": 98,
