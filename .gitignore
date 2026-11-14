@@ -49,3 +49,6 @@ Thumbs.db
 *.fls
 *.fdb_latexmk
 *.synctex.gz
+
+# Local-only helper scripts (not for submission)
+scripts/auto_batch_trials.py
