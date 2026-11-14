@@ -68,8 +68,8 @@ class RoboMasterDashboard:
         kf_cfg = self.cfg.get("kalman_filter", {})
         mot_cfg = self.cfg.get("motion", {})
 
-        # Shared state protected by lock
-        self.lock = threading.Lock()
+        # Shared state protected by re-entrant lock
+        self.lock = threading.RLock()
         self.robot: BaseRobot = None
         self.connected = False
         self.running = True
@@ -77,6 +77,7 @@ class RoboMasterDashboard:
         # Control mode: "IDLE", "AUTO", "AWAITING_TAPE", "TELEOP"
         self.control_mode = "IDLE"
         self.teleop_active = False
+        self.teleop_speed = 0.20
         self.teleop_vx = 0.0
         self.teleop_vy = 0.0
         self.teleop_wz = 0.0
@@ -375,7 +376,8 @@ class RoboMasterDashboard:
         self.var_teleop_speed = tk.DoubleVar(value=0.20)
         tk.Scale(
             spd_frame, from_=0.05, to=0.45, resolution=0.05, orient=tk.HORIZONTAL,
-            variable=self.var_teleop_speed, bg=BG_CARD, fg=FG_TEXT, highlightthickness=0, troughcolor=BG_PANEL
+            variable=self.var_teleop_speed, bg=BG_CARD, fg=FG_TEXT, highlightthickness=0, troughcolor=BG_PANEL,
+            command=lambda v: setattr(self, "teleop_speed", float(v))
         ).pack(fill=tk.X)
 
         # 3. Collected Data Table & Summary
@@ -472,12 +474,8 @@ class RoboMasterDashboard:
 
     def _compute_teleop_target(self) -> tuple[float, float, float]:
         """Combine all currently held keyboard keys and mouse D-pad input."""
-        try:
-            spd = float(self.var_teleop_speed.get())
-        except Exception:
-            spd = 0.20
-
         with self.lock:
+            spd = float(self.teleop_speed)
             held = set(self.keys_held)
             mx, my, mz = self.mouse_teleop_cmd
 
@@ -895,12 +893,19 @@ class RoboMasterDashboard:
 
     def on_close(self):
         self.running = False
-        with self.lock:
+        for t in (getattr(self, "ctrl_thread", None), getattr(self, "cam_thread", None)):
+            if t is not None and t.is_alive():
+                t.join(timeout=0.3)
+        acquired = self.lock.acquire(timeout=0.5)
+        try:
             if self.video_writer:
                 self.video_writer.release()
             if self.robot:
                 self.robot.stop()
                 self.robot.disconnect()
+        finally:
+            if acquired:
+                self.lock.release()
         self.root.destroy()
 
 
