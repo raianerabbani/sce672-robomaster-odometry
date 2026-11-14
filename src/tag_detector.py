@@ -292,7 +292,8 @@ class TagDetector:
         if success and tvec is not None and tvec[2, 0] > 0.15 and abs(tvec[2, 0] - tz_pinhole) < 0.35 * tz_pinhole:
             tx = float(tvec[0, 0])
             ty = float(tvec[1, 0])
-            tz = float(tvec[2, 0])
+            # Use calibrated pinhole Z for stable, calibration-consistent distance at small tag pixel sizes
+            tz = tz_pinhole
             euclidean = float(np.sqrt(tx**2 + ty**2 + tz**2))
         else:
             # Fallback to direct pinhole model
@@ -371,7 +372,7 @@ class TagDetector:
         rmse_m = float(np.sqrt(np.mean((preds - d_arr) ** 2)))
         return fx_1280, offset_m, rmse_m
 
-    def draw_detection(self, frame: np.ndarray, det: TagDetection) -> np.ndarray:
+    def draw_detection(self, frame: np.ndarray, det: TagDetection, bumper_offset: float = 0.0) -> np.ndarray:
         """Annotate camera frame with bounding box, corners, centroid, and metrics."""
         vis = frame.copy()
         if not det.detected or det.corners is None:
@@ -397,11 +398,14 @@ class TagDetector:
             except Exception:
                 pass
 
-        # Text banner
-        label = f"{det.tag_type} {det.tag_id} | Dist: {det.distance:.3f}m | Yaw: {det.bearing_deg:+.1f}deg"
-        cv2.putText(vis, label, (max(10, cx - 120), max(25, cy - 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
-        cv2.putText(vis, label, (max(10, cx - 120), max(25, cy - 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 120), 1, cv2.LINE_AA)
+        # Single clean text banner with dark background pill (no overlapping double text)
+        disp_dist = max(0.0, det.distance - float(bumper_offset))
+        label = f"{det.tag_type} {det.tag_id} | {disp_dist:.3f}m | Yaw: {det.bearing_deg:+.1f}deg"
+        tx_pos = max(10, cx - 130)
+        ty_pos = max(25, cy - 15)
+        (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 1)
+        cv2.rectangle(vis, (tx_pos - 4, ty_pos - th - 4), (tx_pos + tw + 4, ty_pos + baseline + 2), (20, 24, 32), -1)
+        cv2.putText(vis, label, (tx_pos, ty_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 120), 1, cv2.LINE_AA)
 
         return vis

@@ -841,7 +841,7 @@ class RoboMasterDashboard:
                 continue
 
             det = self.detector.detect(frame)
-            vis_frame = self.detector.draw_detection(frame, det)
+            vis_frame = self.detector.draw_detection(frame, det, bumper_offset=self.kf.camera_to_front_offset)
             h, w = vis_frame.shape[:2]
             cv2.line(vis_frame, (w // 2 - 15, h // 2), (w // 2 + 15, h // 2), (200, 200, 200), 1)
             cv2.line(vis_frame, (w // 2, h // 2 - 15), (w // 2, h // 2 + 15), (200, 200, 200), 1)
@@ -1000,7 +1000,11 @@ class RoboMasterDashboard:
         self.lbl_odo_dist.configure(text=f"Pure Odometry: {kf_s.pure_odometry_distance:.3f} m")
 
         if det.detected:
-            self.lbl_vis_dist.configure(text=f"Vision ({det.tag_id}): {det.distance:.3f} m ({det.bearing_deg:+.1f}°)", fg=ACCENT_GREEN)
+            vis_bumper = max(0.0, det.distance - self.kf.camera_to_front_offset)
+            self.lbl_vis_dist.configure(
+                text=f"Vision ({det.tag_id}): {vis_bumper:.3f} m (cam {det.distance:.3f} m, {det.bearing_deg:+.1f}°)",
+                fg=ACCENT_GREEN
+            )
         else:
             self.lbl_vis_dist.configure(text="Vision Raw: [No Tag Detected]", fg=ACCENT_AMBER)
 
