@@ -564,6 +564,10 @@ class RoboMasterDashboard:
 
             with self.frame_lock:
                 det_now = self.latest_det
+            if not det_now.detected:
+                fresh = self.robot.get_frame()
+                if fresh is not None:
+                    det_now = self.detector.detect(fresh)
             if det_now.detected and det_now.distance > 0.0:
                 start_d = max(0.10, round(det_now.distance - self.kf.camera_to_front_offset, 4))
                 self.var_start.set(f"{start_d:.3f}")
@@ -924,11 +928,11 @@ class RoboMasterDashboard:
                     if reached:
                         self.zero_stop_burst = 6
                         self.robot.drive_wheels(0, 0, 0, 0)
-                        self.control_mode = "AWAITING_TAPE"
+                        self.control_mode = "SETTLING"
                         self.stop_settled_at = time.time() + 0.40
                         self.auto_filled_tape = False
-                        self.status_headline = f"TRIAL {self.next_trial_id} COMPLETE — READING FINAL DISTANCE"
-                        self.status_detail = f"Robot stopped (KF: {kf_state.distance:.4f} m). Capturing stationary camera distance — click 'Save Trial' or edit manually."
+                        self.status_headline = f"TRIAL {self.next_trial_id}: BRAKING & SETTLING"
+                        self.status_detail = "Commanded 0 RPM; updating final KF & odometry estimate during coast."
                     else:
                         self.zero_stop_burst = 6
                         w1, w2, w3, w4 = mecanum_inverse_kinematics(vx, vy, wz)
@@ -939,6 +943,35 @@ class RoboMasterDashboard:
                         else:
                             self.status_headline = "AUTO: ODOMETRY DEAD-RECKONING (Tag Not Visible)"
                             self.status_detail = "Tag temporarily out of view — propagating position via Mecanum wheel encoders."
+
+                elif mode == "SETTLING":
+                    # Continue KF & odometry updates for 0.40 s while robot finishes braking to rest
+                    if self.zero_stop_burst > 0:
+                        self.zero_stop_burst -= 1
+                        self.robot.drive_wheels(0, 0, 0, 0)
+                    self.kf.predict(odo_pos=telemetry["odo_x"], dt=dt)
+                    if new_vision and det.detected:
+                        self.kf.correct(visual_distance_raw=det.distance)
+                    kf_state = self.kf.get_state()
+                    cam_offset = self.kf.camera_to_front_offset
+                    true_d = (telemetry["true_distance"] - cam_offset) if "true_distance" in telemetry else None
+                    self.trial_mgr.log_sample(
+                        pure_odo_dist=kf_state.pure_odometry_distance,
+                        visual_dist=det.distance if (new_vision and det.detected) else None,
+                        kf_dist=kf_state.distance,
+                        kf_vel=kf_state.velocity,
+                        cov_pos=kf_state.variance_pos,
+                        cov_vel=kf_state.variance_vel,
+                        kalman_gain=kf_state.kalman_gain,
+                        tag_detected=det.detected,
+                        vx_cmd=0.0,
+                        wz_cmd=0.0,
+                        true_distance=true_d
+                    )
+                    if time.time() >= self.stop_settled_at:
+                        self.control_mode = "AWAITING_TAPE"
+                        self.status_headline = f"TRIAL {self.next_trial_id} COMPLETE — READING FINAL DISTANCE"
+                        self.status_detail = f"Robot stopped (KF: {kf_state.distance:.4f} m). Camera distance captured — click 'Save Trial' or edit manually."
 
                 elif mode == "TELEOP":
                     # Combine all held keys / D-pad inputs and slew-rate shape smoothly

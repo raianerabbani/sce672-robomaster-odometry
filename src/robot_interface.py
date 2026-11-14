@@ -144,6 +144,8 @@ class RoboMasterRobot(BaseRobot):
         self._odo_y = 0.0
         self._odo_yaw = 0.0
         self._odo_x_offset = 0.0
+        self._odo_y_offset = 0.0
+        self._odo_yaw_offset = 0.0
 
         self._vel_x = 0.0
         self._vel_y = 0.0
@@ -237,9 +239,13 @@ class RoboMasterRobot(BaseRobot):
             pass
 
     def get_telemetry(self) -> Dict[str, Any]:
+        dx = float(self._odo_x - self._odo_x_offset)
+        dy = float(self._odo_y - self._odo_y_offset)
+        yaw0 = np.radians(float(self._odo_yaw_offset))
+        odo_forward = float(dx * np.cos(yaw0) + dy * np.sin(yaw0))
         return {
-            "odo_x": float(self._odo_x - self._odo_x_offset),
-            "odo_y": float(self._odo_y),
+            "odo_x": odo_forward,
+            "odo_y": float(dy),
             "odo_yaw": float(self._odo_yaw),
             "vel_x": float(self._vel_x),
             "vel_wz": float(self._vel_wz),
@@ -302,6 +308,8 @@ class RoboMasterRobot(BaseRobot):
 
     def reset_odometry(self):
         self._odo_x_offset = float(self._odo_x)
+        self._odo_y_offset = float(self._odo_y)
+        self._odo_yaw_offset = float(self._odo_yaw)
 
     def disconnect(self):
         if self.ep_robot is not None:
