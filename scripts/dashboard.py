@@ -36,7 +36,6 @@ from src.robot_interface import (
 )
 from src.trial_manager import TrialManager
 from scripts.analyze_results import generate_plots
-from scripts.generate_report import generate_report
 
 
 # Color Palette (Clean Dark Slate)
@@ -721,8 +720,12 @@ class RoboMasterDashboard:
             results_dir=os.path.join(WORKSPACE_ROOT, "results"),
             output_dir=os.path.join(WORKSPACE_ROOT, "results", "plots")
         )
-        generate_report()
-        messagebox.showinfo("Report Compiled", "Generated PDF report at report/RoboMaster_Odometry_Report.pdf.")
+        try:
+            from scripts.generate_report import generate_report
+            generate_report()
+            messagebox.showinfo("Report Compiled", "Generated PDF report at report/RoboMaster_Odometry_Report.pdf.")
+        except ImportError:
+            messagebox.showinfo("Data Exported", "Data & plots exported; local report generator is not present.")
 
     def _open_calibration_dialog(self):
         """3-point manual distance calibration to fit focal length (fx) and bumper offset."""

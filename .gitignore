@@ -52,3 +52,7 @@ Thumbs.db
 
 # Local-only helper scripts (not for submission)
 scripts/auto_batch_trials.py
+controller_walkthrough.html
+data_pipeline_walkthrough.html
+scripts/generate_report.py
+report/
