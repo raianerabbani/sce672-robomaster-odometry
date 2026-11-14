@@ -17,7 +17,7 @@ class StraightLineMotionController:
 
     def __init__(
         self,
-        stop_distance: float = 0.40,
+        stop_distance: float = 0.25,
         v_cruise: float = 0.28,
         v_min: float = 0.14,
         decel_distance: float = 0.45,

@@ -24,7 +24,7 @@ class VisualizerHUD:
         self,
         window_name: str = "RoboMaster EP Odometry - SCE 672",
         start_distance: float = 1.50,
-        stop_distance: float = 0.40,
+        stop_distance: float = 0.25,
         enable_display: bool = True,
         record_video: bool = True,
         video_output_path: str = "results/demo_video.mp4",

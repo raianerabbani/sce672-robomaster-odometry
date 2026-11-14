@@ -80,7 +80,7 @@ class ExperimentStatistics:
 class TrialManager:
     """Orchestrates trials, telemetry logging, and statistical metrics."""
 
-    def __init__(self, output_dir: str = "results", start_distance: float = 1.50, stop_distance: float = 0.40):
+    def __init__(self, output_dir: str = "results", start_distance: float = 1.50, stop_distance: float = 0.25):
         self.output_dir = output_dir
         self.start_distance = float(start_distance)
         self.stop_distance = float(stop_distance)

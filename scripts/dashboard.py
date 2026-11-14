@@ -108,7 +108,7 @@ class RoboMasterDashboard:
             r_vis=kf_cfg.get("r_vis", 0.0016),
         )
         self.controller = StraightLineMotionController(
-            stop_distance=exp_cfg.get("stop_distance", 0.40),
+            stop_distance=exp_cfg.get("stop_distance", 0.25),
             v_cruise=mot_cfg.get("v_cruise", 0.28),
             v_min=mot_cfg.get("v_min", 0.14),
             decel_distance=mot_cfg.get("decel_distance", 0.45),
@@ -120,7 +120,7 @@ class RoboMasterDashboard:
         self.trial_mgr = TrialManager(
             output_dir=os.path.join(WORKSPACE_ROOT, "results"),
             start_distance=exp_cfg.get("start_distance", 1.50),
-            stop_distance=exp_cfg.get("stop_distance", 0.40),
+            stop_distance=exp_cfg.get("stop_distance", 0.25),
         )
         self.next_trial_id = 1
         self.trial_start_time = 0.0
@@ -284,7 +284,7 @@ class RoboMasterDashboard:
         grid_f.pack(fill=tk.X)
 
         self.var_start = tk.StringVar(value=str(exp_cfg.get("start_distance", 1.50)))
-        self.var_stop = tk.StringVar(value=str(exp_cfg.get("stop_distance", 0.40)))
+        self.var_stop = tk.StringVar(value=str(exp_cfg.get("stop_distance", 0.25)))
         self.var_tag_size = tk.StringVar(value=str(tag_cfg.get("physical_size", 0.15)))
         self.var_tag_type = tk.StringVar(value=str(tag_cfg.get("tag_type", "apriltag")))
 
