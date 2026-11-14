@@ -1,19 +1,23 @@
 # Project Phase 3: RoboMaster Odometry
-**Course:** Advanced Robotics (SCE-672), KFUPM | **Instructor:** Prof. Aamer Iqbal Bhatti
+**Course:** Advanced Robotics (SCE-672), KFUPM  
+**Student:** Raian E Rabbani (202617880)  
+**Instructor:** Prof. Aamer Iqbal Bhatti
 
-## 1. Approach & Sensor Measurements
-- **Tag Detection:** Fixed planar visual tag (7.8 cm black square, AprilTag `36h11`) detected from the onboard 720p camera using calibrated pinhole geometry ($f_x = 688.6$ px, camera-to-bumper offset $d_\text{off} = 0.1876$ m).
-- **Straight-Line Motion:** Visual bearing error drives closed-loop PD yaw alignment ($\omega_z$) with cosine deceleration ($v_\text{cruise} = 0.28$ m/s to $v_\text{min} = 0.105$ m/s), converted to individual wheel RPMs via Mecanum inverse kinematics (`drive_wheels`).
-- **Prediction & Correction Sensors:**
-  - *Prediction (50 Hz):* 4-wheel chassis encoder odometry (`sub_position`) projected onto the trial heading propagates distance $d_k = d_{k-1} - \Delta x_\text{odo}$.
-  - *Correction:* Monocular camera tag distance $z_k = z_\text{cam} - d_\text{off}$ updates the 2-state Kalman Filter $[d_k, v_k]^T$ whenever a new frame arrives.
+## 1. Approach and Sensor Measurements
+The experiment was implemented under Ubuntu with ROS 2 on the DJI RoboMaster EP Core. Instead of using the chassis built-in `(v, w)` velocity command interface, each Mecanum wheel speed was controlled directly in RPM via inverse kinematics (`drive_wheels`).
+
+- **Tag Detection:** A fixed 7.8 cm AprilTag (`36h11`) is detected from the onboard 720p camera. Using calibrated pinhole geometry ($f_x = 688.6$ px) and the measured camera-to-bumper offset ($d_\text{off} = 0.1876$ m), the visual distance to the tag is $z_k = (f_x W_\text{tag} / w_\text{px}) - d_\text{off}$.
+- **Straight-Line Motion:** Visual bearing error drives a PD yaw controller to keep the robot centered on the tag, while forward speed ramps from 0.28 m/s down to 0.105 m/s before stopping at 0.25 m.
+- **Prediction and Correction Sensors:**
+  - *Prediction (50 Hz):* Wheel encoder odometry provides chassis displacement to propagate the distance estimate between camera updates.
+  - *Correction:* Camera-based tag distance measurements update a two-state Kalman filter $[d_k, v_k]^T$ whenever a new tag observation is available.
 
 ## 2. Experimental Setup
-- **Platform:** DJI RoboMaster EP Core under Ubuntu.
-- **Reference Point:** Front chassis bumper for both estimated and actual distances.
-- **Distances:** Starting distance $D_0 \approx 1.48$ m; target stopping distance $d_\text{stop} = 0.25$ m; **10 repeat trials**.
+- **Reference Point:** Front bumper of the RoboMaster EP Core for both estimated and measured distances.
+- **Distances:** Starting distance fixed at 1.50 m; stopping distance set to 0.25 m.
+- **Trials:** 10 repeat trials under the same starting conditions.
 
-## 3. Results & Error Calculations
+## 3. Results and Error Calculations
 | Trial | Actual $d_m$ (m) | Estimated $\hat{d}$ (m) | Error $\hat{d}-d_m$ (m) | $|\text{Error}|$ (m) | Pure Odo (m) | Odo Error (m) |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | 01 | 0.2596 | 0.2656 | +0.0060 | 0.0060 | 0.2768 | +0.0172 |
@@ -27,10 +31,11 @@
 | 09 | 0.2607 | 0.2607 | -0.0000 | 0.0000 | 0.3980 | +0.1373 |
 | 10 | 0.2689 | 0.2689 | +0.0000 | 0.0000 | 0.3087 | +0.0398 |
 
-- **Kalman Filter MAE:** **0.56 cm** (`0.0056` m) | **Error Range:** **0.88 cm** (`[-0.0000, +0.0088]` m)
-- **Pure Odometry MAE:** **5.79 cm** (`0.0579` m) | **Error Range:** **12.01 cm**
+- **Kalman Filter MAE:** 0.56 cm (0.0056 m)
+- **Kalman Filter Error Range:** 0.88 cm (`[-0.0000, +0.0088]` m)
+- **Pure Odometry MAE:** 5.79 cm (0.0579 m)
 
 ## 4. Discussion
-- **Trial Consistency:** Across all 10 trials, the Kalman filter stayed within a `0.88` cm spread (MAE `0.56` cm) and stopped reliably near `0.25` m.
-- **Sources of Error:** Mecanum roller slip (causing pure odometry to under-count travel by up to `13.7` cm), camera H.264 stream latency during braking, and small pixel-quantization noise on the 7.8 cm tag.
-- **Role of Prediction & Correction:** Wheel odometry provides smooth 50 Hz state propagation between camera frames, while periodic visual tag measurements eliminate accumulated wheel-slip drift.
+Across the 10 trials, the Kalman filter stayed consistent with an MAE of 0.56 cm and a total error range of 0.88 cm, while pure wheel odometry drifted to an MAE of 5.79 cm.
+
+The main sources of error were Mecanum roller slip during acceleration and braking, slight floor surface variations, stopping inertia, and small pixel-quantization noise on the 7.8 cm tag. Wheel odometry prediction keeps the 50 Hz estimate smooth between frames, while camera correction removes accumulated wheel-slip drift before the robot reaches the target distance.

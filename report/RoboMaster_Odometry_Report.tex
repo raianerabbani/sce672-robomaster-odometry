@@ -6,27 +6,28 @@
 \usepackage[margin=0.75in]{geometry}
 
 \title{\textbf{Project Phase 3: RoboMaster Odometry}\\[0.2em]
-\normalsize Advanced Robotics (SCE-672) --- King Fahd University of Petroleum \& Minerals}
-\author{Instructor: Prof. Aamer Iqbal Bhatti}
+\normalsize Advanced Robotics (SCE-672) -- King Fahd University of Petroleum \& Minerals}
+\author{Raian E Rabbani (202617880) \\
+\small Instructor: Prof. Aamer Iqbal Bhatti}
 \date{November 2026}
 
 \begin{document}
 \maketitle
 
 \section{Approach and Sensor Measurements}
-The RoboMaster EP Core approaches a fixed visual tag along a straight path using a two-state discrete Kalman filter $\mathbf{x}_k = [d_k, v_k]^T$ (bumper-to-tag distance and forward speed):
+The system was implemented on Ubuntu using ROS~2 with the DJI RoboMaster EP Core. Rather than sending high-level $(v, \omega)$ chassis velocity commands, individual wheel speeds were commanded directly in RPM using Mecanum inverse kinematics (\texttt{drive\_wheels}). A two-state Kalman filter $\mathbf{x}_k = [d_k, v_k]^T$ tracks the bumper-to-tag distance and forward velocity:
 \begin{itemize}
-    \item \textbf{Tag Detection:} Monocular 720p camera frames detect an AprilTag (\texttt{36h11}, 7.8~cm black width). Distance is computed via calibrated pinhole optics ($f_x = 688.6$~px, bumper offset $d_{\text{off}} = 0.1876$~m): $z_k = \frac{f_x W_{\text{tag}}}{w_{\text{px}}} - d_{\text{off}}$.
-    \item \textbf{Straight-Line Motion:} Closed-loop visual bearing control ($\omega_z = K_p \theta + K_d \dot{\theta}$) keeps the tag centered while velocity ramps smoothly from $0.28$~m/s to $0.105$~m/s via individual Mecanum wheel RPM commands (\texttt{drive\_wheels}).
-    \item \textbf{Prediction (50~Hz):} Chassis wheel encoder odometry (\texttt{sub\_position}) provides displacement $\Delta x_{\text{odo}}$ to predict $\hat{d}_{k|k-1} = \hat{d}_{k-1|k-1} - \Delta x_{\text{odo}}$.
-    \item \textbf{Correction:} Each camera tag measurement $z_k$ corrects the predicted state and covariance, removing wheel-slip drift.
+    \item \textbf{Tag Detection:} Frames from the 720p camera detect a fixed 7.8~cm AprilTag (\texttt{36h11}). Distance is obtained from calibrated pinhole geometry ($f_x = 688.6$~px) minus the camera-to-bumper offset ($d_{\text{off}} = 0.1876$~m): $z_k = \frac{f_x W_{\text{tag}}}{w_{\text{px}}} - d_{\text{off}}$.
+    \item \textbf{Straight-Line Motion:} A PD controller on the visual bearing angle keeps the robot aligned with the tag while forward speed ramps down from $0.28$~m/s to $0.105$~m/s before stopping.
+    \item \textbf{Prediction Sensor (50~Hz):} Chassis wheel encoder odometry supplies incremental displacement $\Delta x_{\text{odo}}$ to predict $\hat{d}_{k|k-1} = \hat{d}_{k-1|k-1} - \Delta x_{\text{odo}}$ between camera updates.
+    \item \textbf{Correction Sensor:} Each camera tag distance $z_k$ corrects the predicted state and covariance to compensate for wheel slip.
 \end{itemize}
 
 \section{Experimental Setup}
-All 10 repeat trials were conducted on Ubuntu with the same starting distance ($D_0 \approx 1.48$~m) and target stopping distance ($d_{\text{stop}} = 0.25$~m), using the robot's \textbf{front bumper} as the common reference point.
+All 10 repeat trials were run from a starting distance of 1.50~m with a target stopping distance of 0.25~m. Both the estimated and measured distances were referenced to the robot's front bumper.
 
 \section{Results and Error Calculations}
-Error is defined as $e = \hat{d} - d_m$ (estimated minus actual distance). Table~\ref{tab:results} lists all 10 trials alongside pure odometry (prediction-only) for comparison.
+Estimation error is calculated as $e = \hat{d} - d_m$ (estimated distance minus measured distance). Table~\ref{tab:results} summarizes all 10 trials alongside pure wheel odometry for comparison.
 
 \begin{table}[H]
 \centering
@@ -56,15 +57,13 @@ Error is defined as $e = \hat{d} - d_m$ (estimated minus actual distance). Table
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{/home/raian/Documents/phd/adv robotics/project/results/plots/trial_error_comparison.pdf}
-\caption{Scatterplot of final distance estimation errors across 10 repeat trials: Kalman filter vs.\ pure wheel odometry.}
+\includegraphics[width=0.84\textwidth]{/home/raian/Documents/phd/adv robotics/project/results/plots/trial_error_comparison.pdf}
+\caption{Scatterplot of final distance estimation errors across 10 trials.}
 \end{figure}
 
 \section{Discussion}
-\begin{itemize}
-    \item \textbf{Consistency:} Across 10 trials, the Kalman filter achieved a Mean Absolute Error of \textbf{0.56~cm} and an error range of \textbf{0.88~cm}, stopping consistently near 0.25~m.
-    \item \textbf{Sources of Error:} Mecanum roller slip caused pure odometry to drift by 5.79~cm MAE (up to 13.73~cm). Residual Kalman error stems from H.264 video stream latency during deceleration and sub-pixel corner quantization.
-    \item \textbf{Role of Prediction and Correction:} Wheel odometry supplies high-rate (50~Hz) motion prediction between camera frames, while visual tag measurements correct accumulated wheel-slip drift, reducing MAE by 90.4\%.
-\end{itemize}
+Across the 10 trials, the Kalman filter produced consistent stops near 0.25~m with a Mean Absolute Error of 0.56~cm and an error range of 0.88~cm. By comparison, pure wheel odometry had an MAE of 5.79~cm and consistently under-counted the traveled distance.
+
+The primary sources of error were Mecanum roller slip during acceleration and stopping, minor floor unevenness, motor braking inertia, and pixel-level corner quantization on the 7.8~cm tag. Odometry prediction provided smooth 50~Hz position tracking between camera frames, while visual correction removed the accumulated slip error so the robot stopped reliably at the target distance.
 
 \end{document}
