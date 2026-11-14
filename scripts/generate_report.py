@@ -65,7 +65,8 @@ def generate_report(results_dir: str = "results", output_dir: str = "report"):
     md_content = f"""# Project Phase 3: RoboMaster Odometry
 **Course:** Advanced Robotics (SCE-672), KFUPM  
 **Student:** Raian E Rabbani (202617880)  
-**Instructor:** Prof. Aamer Iqbal Bhatti
+**Instructor:** Prof. Aamer Iqbal Bhatti  
+**Repository:** https://github.com/raianerabbani/sce672-robomaster-odometry
 
 ## 1. Approach, Calibration, and Sensor Measurements
 The experiment was implemented under Ubuntu with ROS 2 on the DJI RoboMaster EP Core. Instead of using the chassis built-in `(v, w)` velocity command interface, each Mecanum wheel speed was controlled directly in RPM via inverse kinematics (`drive_wheels`).
@@ -117,12 +118,14 @@ The main sources of error were Mecanum roller slip during acceleration and braki
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{float}
+\usepackage[hidelinks]{hyperref}
 \usepackage[margin=0.72in]{geometry}
 
 \title{\textbf{Project Phase 3: RoboMaster Odometry}\\[0.2em]
 \normalsize Advanced Robotics (SCE-672) -- King Fahd University of Petroleum \& Minerals}
 \author{Raian E Rabbani (202617880) \\
-\small Instructor: Prof. Aamer Iqbal Bhatti}
+\small Instructor: Prof. Aamer Iqbal Bhatti \\
+\small GitHub: \url{https://github.com/raianerabbani/sce672-robomaster-odometry}}
 \date{November 2026}
 
 \begin{document}
