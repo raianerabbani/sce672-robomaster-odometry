@@ -124,6 +124,8 @@ class RoboMasterDashboard:
         )
         self.next_trial_id = 1
         self.trial_start_time = 0.0
+        self.stop_settled_at = 0.0
+        self.auto_filled_tape = False
 
         # Async camera/vision state (decoupled from 50 Hz wheel control loop)
         self.frame_lock = threading.Lock()
@@ -560,6 +562,15 @@ class RoboMasterDashboard:
             self.teleop_active = False
             self.btn_teleop.configure(text="🎮 Take Control", bg=ACCENT_AMBER, fg="black")
 
+            with self.frame_lock:
+                det_now = self.latest_det
+            if det_now.detected and det_now.distance > 0.0:
+                start_d = max(0.10, round(det_now.distance - self.kf.camera_to_front_offset, 4))
+                self.var_start.set(f"{start_d:.3f}")
+
+            self.var_tape.set("")
+            self.auto_filled_tape = False
+
             self.detector.tag_type = tag_tp
             self.detector.tag_size = tag_sz
             if isinstance(self.robot, MockRobot):
@@ -914,8 +925,10 @@ class RoboMasterDashboard:
                         self.zero_stop_burst = 6
                         self.robot.drive_wheels(0, 0, 0, 0)
                         self.control_mode = "AWAITING_TAPE"
-                        self.status_headline = f"TRIAL {self.next_trial_id} COMPLETE — ENTER TAPE MEASUREMENT"
-                        self.status_detail = f"Robot stopped at KF estimate {kf_state.distance:.4f} m. Measure actual distance with tape and click 'Save Trial'."
+                        self.stop_settled_at = time.time() + 0.40
+                        self.auto_filled_tape = False
+                        self.status_headline = f"TRIAL {self.next_trial_id} COMPLETE — READING FINAL DISTANCE"
+                        self.status_detail = f"Robot stopped (KF: {kf_state.distance:.4f} m). Capturing stationary camera distance — click 'Save Trial' or edit manually."
                     else:
                         self.zero_stop_burst = 6
                         w1, w2, w3, w4 = mecanum_inverse_kinematics(vx, vy, wz)
@@ -1012,9 +1025,14 @@ class RoboMasterDashboard:
             text=f"FR (w1): {wheels[0]:+4d}  |  FL (w2): {wheels[1]:+4d}\nRL (w3): {wheels[2]:+4d}  |  RR (w4): {wheels[3]:+4d}"
         )
 
-        # Auto-suggest tape distance when trial just finished
-        if mode == "AWAITING_TAPE" and not self.var_tape.get():
-            self.var_tape.set(f"{kf_s.distance:.4f}")
+        # Auto-fill final distance from stationary calibrated camera after settle (editable if manual tape differs)
+        if mode == "AWAITING_TAPE" and not self.auto_filled_tape and time.time() >= self.stop_settled_at:
+            if det.detected and det.distance > 0.0:
+                cam_bumper_d = max(0.0, det.distance - self.kf.camera_to_front_offset)
+                self.var_tape.set(f"{cam_bumper_d:.4f}")
+            else:
+                self.var_tape.set(f"{kf_s.distance:.4f}")
+            self.auto_filled_tape = True
 
         if self.running:
             self.root.after(33, self._update_ui)

@@ -1,58 +1,53 @@
-# Configuration for RoboMaster EP Phase 3 Odometry Project
-# SCE-672: Advanced Robotics, KFUPM
-
 experiment:
-  start_distance: 1.50          # Starting distance in meters (specified 1.0 to 2.0 m)
-  stop_distance: 0.25           # Selected stopping distance in meters (< start_distance)
-  num_trials: 10                # Number of repeat trials (8 to 10 trials required)
-  reference_point: "front_bumper" # Physical reference point on the robot
-  camera_to_front_offset: 0.05  # Distance from camera optical center to front bumper (m)
-  trial_timeout: 25.0           # Maximum seconds allowed per trial before safety abort
-
+  start_distance: 1.5
+  stop_distance: 0.25
+  num_trials: 10
+  reference_point: front_bumper
+  camera_to_front_offset: 0.1876
+  trial_timeout: 25.0
 tag:
-  tag_type: "apriltag"          # Detection mode: "apriltag", "qr", "aruco", or "auto"
-  physical_size: 0.078          # Outer black-square width/height of tag in meters (7.8 cm)
-  apriltag_family: "DICT_APRILTAG_36h11" # "DICT_APRILTAG_36h11", "DICT_APRILTAG_25h9", "DICT_APRILTAG_16h5", or "auto"
-  target_ids: [1, 2, 3]         # Allowed AprilTag IDs (1, 2, or 3)
-  payload: "SCE672_ROBOMASTER_TARGET" # Text encoded if using QR code
-  aruco_dict: "DICT_4X4_50"     # ArUco dictionary if using ArUco
-  aruco_id: 0                   # ArUco ID if using ArUco
-
+  tag_type: apriltag
+  physical_size: 0.078
+  apriltag_family: DICT_APRILTAG_36h11
+  target_ids:
+  - 1
+  - 2
+  - 3
+  payload: SCE672_ROBOMASTER_TARGET
+  aruco_dict: DICT_4X4_50
+  aruco_id: 0
 camera:
-  stream_resolution: "720p"     # RoboMaster camera resolution: "720p" (1280x720) or "360p" (640x360)
+  stream_resolution: 720p
   width: 1280
   height: 720
-  # RoboMaster EP Wide-Angle Camera Calibration parameters (720p mode)
-  # Diagonal FOV ~120 deg, Horizontal FOV ~96 deg
-  fx: 580.0
-  fy: 580.0
+  fx: 688.63
+  fy: 688.63
   cx: 640.0
   cy: 360.0
   k1: 0.0
   k2: 0.0
-
 kalman_filter:
-  # State vector: x = [d, v]^T (remaining distance to tag, forward velocity)
-  # Process noise covariance Q
-  q_pos: 0.0009                 # Process variance for position (reflects wheel slippage: ~0.03 m std)
-  q_vel: 0.0025                 # Process variance for velocity (~0.05 m/s std)
-  # Measurement noise covariance R (visual tag distance noise)
-  r_vis: 0.0016                 # Visual distance measurement variance (~0.04 m std)
-  # Initial state covariance P0
-  p0_pos: 0.0025                # Initial position variance (~0.05 m std)
-  p0_vel: 0.0100                # Initial velocity variance (~0.1 m/s std)
-
+  q_pos: 0.0009
+  q_vel: 0.0025
+  r_vis: 0.0016
+  p0_pos: 0.0025
+  p0_vel: 0.01
 motion:
-  v_cruise: 0.28                # Nominal cruise speed straight towards tag (m/s, ~80 RPM)
-  v_min: 0.14                   # Minimum crawl speed above M3508I stiction deadband (m/s, ~40 RPM)
-  decel_distance: 0.45          # Distance over which robot smoothly ramps down speed (m)
-  max_accel: 0.60               # Longitudinal slew-rate acceleration limit (m/s^2)
-  kp_yaw: 0.65                  # Proportional gain for visual center alignment
-  kd_yaw: 0.04                  # Derivative gain for visual yaw damping
-  max_yaw_rate: 20.0            # Maximum rotational rate limit (deg/s)
-
+  v_cruise: 0.28
+  v_min: 0.105
+  decel_distance: 0.55
+  max_accel: 0.6
+  kp_yaw: 0.65
+  kd_yaw: 0.04
+  max_yaw_rate: 20.0
 hardware:
-  conn_type: "ap"               # "ap" (Wi-Fi Access Point 192.168.2.1), "rndis" (USB cable), or "sta" (Router)
-  telemetry_rate: 50            # Telemetry subscription frequency (Hz)
-  led_color: [0, 220, 100]      # Green LED for ready/tracking
-  led_stop_color: [0, 100, 255] # Blue LED when target reached
+  conn_type: ap
+  telemetry_rate: 50
+  led_color:
+  - 0
+  - 220
+  - 100
+  led_stop_color:
+  - 0
+  - 100
+  - 255

@@ -19,13 +19,15 @@ class StraightLineMotionController:
         self,
         stop_distance: float = 0.25,
         v_cruise: float = 0.28,
-        v_min: float = 0.14,
-        decel_distance: float = 0.45,
+        v_min: float = 0.105,
+        decel_distance: float = 0.55,
         max_accel: float = 0.60,
         kp_yaw: float = 0.65,
         kd_yaw: float = 0.04,
         max_yaw_rate: float = 20.0,
         yaw_deadband_deg: float = 1.2,
+        stop_lead_time: float = 0.25,
+        stop_lead_min: float = 0.025,
     ):
         """Initialize smooth motion controller.
 
@@ -49,6 +51,8 @@ class StraightLineMotionController:
         self.kd_yaw = float(kd_yaw)
         self.max_yaw_rate = float(max_yaw_rate)
         self.yaw_deadband_deg = float(yaw_deadband_deg)
+        self.stop_lead_time = float(stop_lead_time)
+        self.stop_lead_min = float(stop_lead_min)
 
         self.vx_shaped: float = 0.0
         self.wz_shaped: float = 0.0
@@ -83,8 +87,9 @@ class StraightLineMotionController:
             dt = float(np.clip(current_time - self.last_time, 0.005, 0.10))
         self.last_time = current_time
 
-        # Stopping condition
-        if current_distance <= self.stop_distance or self.target_reached:
+        # Predictive stopping condition (compensates H.264 stream latency + chassis braking inertia)
+        lead_dist = self.stop_lead_min + self.stop_lead_time * max(self.vx_shaped, 0.0)
+        if current_distance <= (self.stop_distance + lead_dist) or self.target_reached:
             self.target_reached = True
             self.vx_shaped = 0.0
             self.wz_shaped = 0.0
