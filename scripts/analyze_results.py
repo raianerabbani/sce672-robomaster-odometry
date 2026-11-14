@@ -51,35 +51,38 @@ def generate_plots(results_dir: str = "results", output_dir: str = "results/plot
     print(f"[Analyze] Loaded {len(trials)} trials from {summary_json_path}.")
 
     # -------------------------------------------------------------
-    # FIGURE 1: Multi-Trial Error Comparison (KF vs Pure Odometry)
+    # FIGURE 1: Multi-Trial Error Scatterplot (KF vs Pure Odometry)
     # -------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(9, 5.2), dpi=300)
+    fig, ax = plt.subplots(figsize=(8.5, 4.6), dpi=300)
 
     trial_ids = [t["trial_id"] for t in trials]
     kf_errors_cm = [t["kf_error"] * 100 for t in trials]
     odo_errors_cm = [t["odo_error"] * 100 for t in trials]
 
-    x = np.arange(len(trial_ids))
-    width = 0.38
+    ax.scatter(
+        trial_ids, kf_errors_cm, s=75, marker="o",
+        color="#1b7837", edgecolor="#00441b", zorder=4,
+        label="Kalman Filter (Prediction + Correction)"
+    )
+    ax.scatter(
+        trial_ids, odo_errors_cm, s=75, marker="s",
+        color="#b2182b", edgecolor="#67001f", alpha=0.85, zorder=3,
+        label="Pure Odometry (Prediction Only)"
+    )
 
-    rects1 = ax.bar(x - width/2, kf_errors_cm, width, label="Kalman Filter (Fused)", color="#1b7837", alpha=0.85, edgecolor="#00441b")
-    rects2 = ax.bar(x + width/2, odo_errors_cm, width, label="Pure Wheel Odometry (Dead Reckoning)", color="#b2182b", alpha=0.75, edgecolor="#67001f")
-
-    # Zero line
-    ax.axhline(0, color="black", linestyle="-", linewidth=0.8)
-
-    # MAE reference lines
+    # Zero-error reference and MAE band
+    ax.axhline(0, color="black", linestyle="-", linewidth=0.9)
     kf_mae_cm = stats["kf_mae"] * 100
     odo_mae_cm = stats["odo_mae"] * 100
-    ax.axhline(kf_mae_cm, color="#1b7837", linestyle=":", linewidth=1.5, label=f"KF MAE = {kf_mae_cm:.2f} cm")
-    ax.axhline(-kf_mae_cm, color="#1b7837", linestyle=":", linewidth=1.5)
+    ax.axhline(kf_mae_cm, color="#1b7837", linestyle=":", linewidth=1.4, label=f"KF MAE = {kf_mae_cm:.2f} cm")
+    ax.axhline(odo_mae_cm, color="#b2182b", linestyle="--", linewidth=1.2, alpha=0.7, label=f"Pure Odo MAE = {odo_mae_cm:.2f} cm")
 
-    ax.set_xlabel("Experimental Trial Number", fontweight="bold")
-    ax.set_ylabel("Final Distance Estimation Error (cm)\n[Estimated Distance - Measured Actual Distance]", fontweight="bold")
-    ax.set_title("Comparison of Distance Estimation Errors across 10 Repeat Trials", fontweight="bold")
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"Trial {i:02d}" for i in trial_ids])
-    ax.legend(loc="upper right", framealpha=0.92)
+    ax.set_xlabel("Trial Number", fontweight="bold")
+    ax.set_ylabel("Distance Estimation Error (cm)\n(Estimated − Measured)", fontweight="bold")
+    ax.set_title("Final Distance Estimation Error Across Repeat Trials", fontweight="bold")
+    ax.set_xticks(trial_ids)
+    ax.set_xticklabels([f"{i}" for i in trial_ids])
+    ax.legend(loc="upper left", framealpha=0.92)
     ax.grid(True)
     plt.tight_layout()
 

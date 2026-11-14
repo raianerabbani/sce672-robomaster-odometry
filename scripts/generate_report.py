@@ -99,7 +99,6 @@ def generate_report(results_dir: str = "results", output_dir: str = "report"):
 
     # 2. Minimalistic LaTeX Report
     err_plot = os.path.join(WORKSPACE_ROOT, "results", "plots", "trial_error_comparison.pdf")
-    traj_plot = os.path.join(WORKSPACE_ROOT, "results", "plots", "trial_trajectory_analysis.pdf")
 
     tex_content = (
         r"""\documentclass[10pt,a4paper]{article}
@@ -194,20 +193,12 @@ Error is defined as $e = \hat{d} - d_m$ (estimated minus actual distance). Table
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.86\textwidth]{"""
+\includegraphics[width=0.85\textwidth]{"""
         + err_plot
         + r"""}
-\caption{Final distance error across """
+\caption{Scatterplot of final distance estimation errors across """
         + str(stats["num_trials"])
-        + r""" trials: Kalman filter vs.\ pure wheel odometry.}
-\end{figure}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.86\textwidth]{"""
-        + traj_plot
-        + r"""}
-\caption{Representative approach trajectory showing 50~Hz odometry prediction, visual correction, and covariance convergence.}
+        + r""" repeat trials: Kalman filter vs.\ pure wheel odometry.}
 \end{figure}
 
 \section{Discussion}
