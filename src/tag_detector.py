@@ -21,6 +21,7 @@ class TagDetection:
     center: Tuple[float, float] = (0.0, 0.0)      # (cx, cy) in px
     width_px: float = 0.0                         # Apparent width (px)
     height_px: float = 0.0                        # Apparent height (px)
+    frame_width: int = 1280                       # Image width used for width_px (px)
     distance: float = 0.0                         # Forward distance Z in camera frame (meters)
     distance_euclidean: float = 0.0               # Euclidean distance sqrt(X^2 + Y^2 + Z^2) (meters)
     bearing_deg: float = 0.0                      # Horizontal bearing angle (deg), positive = right
@@ -317,6 +318,7 @@ class TagDetector:
             center=(center_x, center_y),
             width_px=w_px,
             height_px=h_px,
+            frame_width=max(int(round(2.0 * cx)), 1),
             distance=tz,
             distance_euclidean=euclidean,
             bearing_deg=bearing_deg,
@@ -324,6 +326,50 @@ class TagDetector:
             rvec=rvec,
             tvec=tvec
         )
+
+    def set_focal_length(self, fx_1280: float, fy_1280: Optional[float] = None):
+        """Update base 1280p focal length and current camera matrix."""
+        fx_val = float(fx_1280)
+        fy_val = float(fx_1280 if fy_1280 is None else fy_1280)
+        self._base_camera_matrix[0, 0] = fx_val
+        self._base_camera_matrix[1, 1] = fy_val
+        scale_x = (2.0 * float(self.camera_matrix[0, 2])) / self._base_width
+        scale_y = (2.0 * float(self.camera_matrix[1, 2])) / self._base_height
+        self.camera_matrix[0, 0] = fx_val * scale_x
+        self.camera_matrix[1, 1] = fy_val * scale_y
+
+    @staticmethod
+    def fit_distance_calibration(
+        samples: List[Tuple[float, float, int]],
+        tag_size: float
+    ) -> Tuple[float, float, float]:
+        """Fit (fx_1280, camera_to_front_offset, rmse_m) from (tape_dist_m, width_px, frame_width) points."""
+        if len(samples) < 2:
+            raise ValueError("At least 2 calibration points are required.")
+        u_vals = []
+        d_vals = []
+        for dist_m, w_px, fw in samples:
+            if w_px <= 0 or fw <= 0:
+                raise ValueError("Invalid tag pixel width or frame width.")
+            w_1280 = float(w_px) * (1280.0 / float(fw))
+            u_vals.append(float(tag_size) / w_1280)
+            d_vals.append(float(dist_m))
+
+        u_arr = np.asarray(u_vals, dtype=np.float64)
+        d_arr = np.asarray(d_vals, dtype=np.float64)
+        if np.ptp(u_arr) < 1e-6:
+            raise ValueError("Calibration distances must be distinct.")
+
+        # Model: d_tape = fx_1280 * (tag_size / w_1280) - camera_to_front_offset
+        slope, intercept = np.polyfit(u_arr, d_arr, 1)
+        fx_1280 = float(slope)
+        offset_m = float(-intercept)
+        if fx_1280 <= 100.0:
+            raise ValueError(f"Fitted focal length ({fx_1280:.1f} px) is unrealistic; check distances/tag visibility.")
+
+        preds = slope * u_arr + intercept
+        rmse_m = float(np.sqrt(np.mean((preds - d_arr) ** 2)))
+        return fx_1280, offset_m, rmse_m
 
     def draw_detection(self, frame: np.ndarray, det: TagDetection) -> np.ndarray:
         """Annotate camera frame with bounding box, corners, centroid, and metrics."""

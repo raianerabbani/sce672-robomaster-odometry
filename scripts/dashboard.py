@@ -316,6 +316,12 @@ class RoboMasterDashboard:
         )
         self.btn_rec.pack(side=tk.LEFT, padx=(4, 0))
 
+        self.btn_cal = tk.Button(
+            btn_row, text="📐 Calibrate", bg=ACCENT_BLUE, fg="white", font=("Sans", 9, "bold"),
+            relief=tk.FLAT, padx=8, pady=6, command=self._open_calibration_dialog
+        )
+        self.btn_cal.pack(side=tk.LEFT, padx=(4, 0))
+
         # Ground-truth tape input row
         gt_row = tk.Frame(ctrl_card, bg=BG_PANEL, padx=8, pady=6)
         gt_row.pack(fill=tk.X, pady=(4, 0))
@@ -702,6 +708,124 @@ class RoboMasterDashboard:
         )
         generate_report()
         messagebox.showinfo("Report Compiled", "Generated PDF report at report/RoboMaster_Odometry_Report.pdf.")
+
+    def _open_calibration_dialog(self):
+        """3-point manual distance calibration to fit focal length (fx) and bumper offset."""
+        if not self.connected:
+            messagebox.showwarning("Not Connected", "Connect to RoboMaster EP or Simulator first so the camera is live.")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("3-Point Distance Calibration")
+        win.geometry("520x300")
+        win.configure(bg=BG_MAIN)
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(
+            win,
+            text="Place the robot stationary at 3 arbitrary tape-measured distances facing the tag.\n"
+                 "Enter each distance (m), click Capture, then Confirm & Save.",
+            bg=BG_MAIN, fg=FG_TEXT, font=("Sans", 9), justify=tk.LEFT, pady=8, padx=12
+        ).pack(anchor=tk.W)
+
+        samples = [None, None, None]
+        fitted_result = [None]  # (fx_1280, offset_m, rmse_m)
+        default_dists = ["1.50", "0.85", "0.35"]
+        dist_vars = [tk.StringVar(value=d) for d in default_dists]
+        status_lbls = []
+
+        body = tk.Frame(win, bg=BG_CARD, padx=12, pady=10)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
+
+        lbl_fit = tk.Label(
+            body, text="Capture all 3 points to compute calibration.",
+            bg=BG_PANEL, fg=ACCENT_AMBER, font=("Sans", 9, "bold"), pady=6, padx=8
+        )
+
+        def _try_fit():
+            if all(s is not None for s in samples):
+                try:
+                    tag_sz = float(self.var_tag_size.get() or 0.078)
+                    fx_val, off_val, rmse_val = TagDetector.fit_distance_calibration(samples, tag_sz)
+                    fitted_result[0] = (fx_val, off_val, rmse_val)
+                    lbl_fit.configure(
+                        text=f"fx = {fx_val:.1f} px | Bumper Offset = {off_val:.4f} m | Fit RMSE = {rmse_val*100:.2f} cm",
+                        fg=ACCENT_GREEN
+                    )
+                    btn_confirm.configure(state=tk.NORMAL)
+                except Exception as exc:
+                    fitted_result[0] = None
+                    lbl_fit.configure(text=f"Calibration error: {exc}", fg=ACCENT_RED)
+                    btn_confirm.configure(state=tk.DISABLED)
+
+        def _capture_point(idx: int):
+            try:
+                dist_m = float(dist_vars[idx].get().strip())
+                if dist_m <= 0.0:
+                    raise ValueError("Distance must be > 0")
+            except ValueError:
+                messagebox.showerror("Invalid Distance", f"Enter a valid positive distance in meters for Point {idx + 1}.", parent=win)
+                return
+
+            with self.frame_lock:
+                det = self.latest_det
+
+            if not det.detected or det.width_px <= 0.0:
+                messagebox.showwarning("Tag Not Detected", "No tag is currently detected in the camera feed. Align the robot and try again.", parent=win)
+                return
+
+            samples[idx] = (dist_m, float(det.width_px), int(det.frame_width))
+            status_lbls[idx].configure(
+                text=f"✓ {dist_m:.3f} m | w={det.width_px:.1f} px (raw={det.distance:.3f} m)",
+                fg=ACCENT_GREEN
+            )
+            _try_fit()
+
+        for i in range(3):
+            row = tk.Frame(body, bg=BG_CARD, pady=4)
+            row.pack(fill=tk.X)
+            tk.Label(row, text=f"Point {i + 1} (m):", bg=BG_CARD, fg=FG_TEXT, font=("Sans", 9, "bold"), width=11, anchor=tk.W).pack(side=tk.LEFT)
+            tk.Entry(row, textvariable=dist_vars[i], width=8, bg=BG_PANEL, fg=FG_TEXT, insertbackground=FG_TEXT, relief=tk.FLAT).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Button(
+                row, text="Capture", bg=ACCENT_BLUE, fg="white", font=("Sans", 8, "bold"),
+                relief=tk.FLAT, padx=10, pady=3, command=lambda idx=i: _capture_point(idx)
+            ).pack(side=tk.LEFT, padx=(0, 10))
+            lbl_s = tk.Label(row, text="Not captured", bg=BG_CARD, fg=FG_MUTED, font=("Sans", 8))
+            lbl_s.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            status_lbls.append(lbl_s)
+
+        lbl_fit.pack(fill=tk.X, pady=(12, 8))
+
+        btn_bar = tk.Frame(win, bg=BG_MAIN, padx=12, pady=8)
+        btn_bar.pack(fill=tk.X)
+
+        def _confirm_save():
+            if fitted_result[0] is None:
+                return
+            fx_val, off_val, rmse_val = fitted_result[0]
+            with self.lock:
+                self.detector.set_focal_length(fx_val)
+                self.kf.camera_to_front_offset = off_val
+                self.cfg.setdefault("camera", {})["fx"] = round(fx_val, 2)
+                self.cfg["camera"]["fy"] = round(fx_val, 2)
+                self.cfg.setdefault("experiment", {})["camera_to_front_offset"] = round(off_val, 4)
+                cfg_path = os.path.join(WORKSPACE_ROOT, "config", "settings.yaml")
+                with open(cfg_path, "w") as f:
+                    yaml.safe_dump(self.cfg, f, sort_keys=False)
+                self.status_headline = f"CALIBRATED: fx={fx_val:.1f} px, offset={off_val:.3f} m"
+                self.status_detail = f"3-point calibration saved to config/settings.yaml (RMSE={rmse_val*100:.2f} cm)."
+            win.destroy()
+
+        btn_confirm = tk.Button(
+            btn_bar, text="Confirm & Save Calibration", bg=ACCENT_GREEN, fg="white",
+            font=("Sans", 9, "bold"), relief=tk.FLAT, padx=12, pady=6, state=tk.DISABLED, command=_confirm_save
+        )
+        btn_confirm.pack(side=tk.RIGHT)
+        tk.Button(
+            btn_bar, text="Cancel", bg=BG_PANEL, fg=FG_TEXT,
+            font=("Sans", 9), relief=tk.FLAT, padx=12, pady=6, command=win.destroy
+        ).pack(side=tk.RIGHT, padx=(0, 8))
 
     def _camera_loop(self):
         """Asynchronous camera acquisition and tag detection thread (never blocks 50 Hz wheels)."""
