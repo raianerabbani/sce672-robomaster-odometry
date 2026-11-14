@@ -23,7 +23,7 @@ The RoboMaster EP Core approaches a fixed visual tag along a straight path using
 \end{itemize}
 
 \section{Experimental Setup}
-All 10 repeat trials were conducted on Ubuntu with the same starting distance ($D_0 \approx 1.50$~m) and target stopping distance ($d_{\text{stop}} = 0.25$~m), using the robot's \textbf{front bumper} as the common reference point.
+All 10 repeat trials were conducted on Ubuntu with the same starting distance ($D_0 \approx 1.48$~m) and target stopping distance ($d_{\text{stop}} = 0.25$~m), using the robot's \textbf{front bumper} as the common reference point.
 
 \section{Results and Error Calculations}
 Error is defined as $e = \hat{d} - d_m$ (estimated minus actual distance). Table~\ref{tab:results} lists all 10 trials alongside pure odometry (prediction-only) for comparison.
@@ -37,19 +37,19 @@ Error is defined as $e = \hat{d} - d_m$ (estimated minus actual distance). Table
 \toprule
 \textbf{Trial} & \textbf{Actual $d_m$ (m)} & \textbf{KF Est $\hat{d}$ (m)} & \textbf{KF Error $e$ (m)} & \textbf{$|e|$ (m)} & \textbf{Pure Odo (m)} & \textbf{Odo Error (m)} \\
 \midrule
-1 & 0.2587 & 0.2632 & +0.0045 & 0.0045 & 0.2728 & +0.0141 \\
-2 & 0.2593 & 0.2638 & +0.0046 & 0.0046 & 0.2953 & +0.0361 \\
-3 & 0.2610 & 0.2630 & +0.0019 & 0.0019 & 0.2975 & +0.0365 \\
-4 & 0.2605 & 0.2619 & +0.0014 & 0.0014 & 0.2878 & +0.0272 \\
-5 & 0.2584 & 0.2604 & +0.0020 & 0.0020 & 0.3219 & +0.0635 \\
-6 & 0.2609 & 0.2635 & +0.0026 & 0.0026 & 0.3256 & +0.0647 \\
-7 & 0.2590 & 0.2674 & +0.0085 & 0.0085 & 0.3111 & +0.0522 \\
-8 & 0.2584 & 0.2589 & +0.0005 & 0.0005 & 0.3028 & +0.0444 \\
-9 & 0.2514 & 0.2549 & +0.0036 & 0.0036 & 0.3694 & +0.1181 \\
-10 & 0.2522 & 0.2560 & +0.0038 & 0.0038 & 0.3471 & +0.0949 \\
+1 & 0.2596 & 0.2656 & +0.0060 & 0.0060 & 0.2768 & +0.0172 \\
+2 & 0.2543 & 0.2623 & +0.0080 & 0.0080 & 0.2848 & +0.0305 \\
+3 & 0.2551 & 0.2639 & +0.0088 & 0.0088 & 0.2979 & +0.0428 \\
+4 & 0.2567 & 0.2653 & +0.0086 & 0.0086 & 0.3776 & +0.1209 \\
+5 & 0.2520 & 0.2604 & +0.0084 & 0.0084 & 0.2700 & +0.0180 \\
+6 & 0.2503 & 0.2583 & +0.0080 & 0.0080 & 0.3036 & +0.0533 \\
+7 & 0.2519 & 0.2598 & +0.0079 & 0.0079 & 0.2943 & +0.0424 \\
+8 & 0.2639 & 0.2639 & +0.0000 & 0.0000 & 0.3409 & +0.0770 \\
+9 & 0.2607 & 0.2607 & -0.0000 & 0.0000 & 0.3980 & +0.1373 \\
+10 & 0.2689 & 0.2689 & +0.0000 & 0.0000 & 0.3087 & +0.0398 \\
 \midrule
-\textbf{MAE} & -- & -- & -- & \textbf{0.0033} & -- & 0.0552 \\
-\textbf{Range} & -- & -- & [+0.0005, +0.0085] & \textbf{0.0080} & -- & 0.1039 \\
+\textbf{MAE} & -- & -- & -- & \textbf{0.0056} & -- & 0.0579 \\
+\textbf{Range} & -- & -- & [-0.0000, +0.0088] & \textbf{0.0088} & -- & 0.1201 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -62,9 +62,9 @@ Error is defined as $e = \hat{d} - d_m$ (estimated minus actual distance). Table
 
 \section{Discussion}
 \begin{itemize}
-    \item \textbf{Consistency:} Across 10 trials, the Kalman filter achieved a Mean Absolute Error of \textbf{0.33~cm} and an error range of \textbf{0.80~cm}, stopping consistently near 0.25~m.
-    \item \textbf{Sources of Error:} Mecanum roller slip caused pure odometry to drift by 5.52~cm MAE (up to 11.81~cm). Residual Kalman error stems from H.264 video stream latency during deceleration and sub-pixel corner quantization.
-    \item \textbf{Role of Prediction and Correction:} Wheel odometry supplies high-rate (50~Hz) motion prediction between camera frames, while visual tag measurements correct accumulated wheel-slip drift, reducing MAE by 94.0\%.
+    \item \textbf{Consistency:} Across 10 trials, the Kalman filter achieved a Mean Absolute Error of \textbf{0.56~cm} and an error range of \textbf{0.88~cm}, stopping consistently near 0.25~m.
+    \item \textbf{Sources of Error:} Mecanum roller slip caused pure odometry to drift by 5.79~cm MAE (up to 13.73~cm). Residual Kalman error stems from H.264 video stream latency during deceleration and sub-pixel corner quantization.
+    \item \textbf{Role of Prediction and Correction:} Wheel odometry supplies high-rate (50~Hz) motion prediction between camera frames, while visual tag measurements correct accumulated wheel-slip drift, reducing MAE by 90.4\%.
 \end{itemize}
 
 \end{document}
