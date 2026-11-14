@@ -426,7 +426,7 @@ class RoboMasterDashboard:
         for sym, norm in key_aliases.items():
             self.root.bind(f"<KeyPress-{sym}>", lambda e, k=norm: self._on_key_press(k))
             self.root.bind(f"<KeyRelease-{sym}>", lambda e, k=norm: self._on_key_release(k))
-        self.root.bind("<FocusOut>", lambda e: self._clear_held_keys())
+        self.root.bind("<FocusOut>", lambda e: self._clear_held_keys() if e.widget is self.root else None)
         self.root.bind("<space>", lambda e: self._emergency_stop())
 
     def _on_key_press(self, key_name: str):
@@ -445,7 +445,7 @@ class RoboMasterDashboard:
     def _on_key_release(self, key_name: str):
         if isinstance(self.root.focus_get(), tk.Entry):
             return
-        # Debounce X11 auto-repeat KeyRelease/KeyPress pairs (~45 ms)
+        # Debounce X11 auto-repeat KeyRelease/KeyPress pairs (90 ms tolerates 720p UI frame renders)
         old_timer = self.key_release_timers.pop(key_name, None)
         if old_timer is not None:
             try:
@@ -453,7 +453,7 @@ class RoboMasterDashboard:
             except Exception:
                 pass
         self.key_release_timers[key_name] = self.root.after(
-            45, lambda k=key_name: self._commit_key_release(k)
+            90, lambda k=key_name: self._commit_key_release(k)
         )
 
     def _commit_key_release(self, key_name: str):
