@@ -11,7 +11,7 @@ experiment:
 
 tag:
   tag_type: "apriltag"          # Detection mode: "apriltag", "qr", "aruco", or "auto"
-  physical_size: 0.15           # Outer black-square width/height of tag in meters (adjust to match your printed tag)
+  physical_size: 0.078          # Outer black-square width/height of tag in meters (7.8 cm)
   apriltag_family: "DICT_APRILTAG_36h11" # "DICT_APRILTAG_36h11", "DICT_APRILTAG_25h9", "DICT_APRILTAG_16h5", or "auto"
   target_ids: [1, 2, 3]         # Allowed AprilTag IDs (1, 2, or 3)
   payload: "SCE672_ROBOMASTER_TARGET" # Text encoded if using QR code

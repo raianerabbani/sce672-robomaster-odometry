@@ -323,7 +323,7 @@ class MockRobot(BaseRobot):
     def __init__(
         self,
         start_distance: float = 1.50,
-        tag_size: float = 0.15,
+        tag_size: float = 0.078,
         tag_type: str = "apriltag",
         tag_id: int = 1,
         qr_payload: str = "SCE672_ROBOMASTER_TARGET",

@@ -35,7 +35,7 @@ class TagDetector:
     def __init__(
         self,
         tag_type: str = "apriltag",
-        tag_size: float = 0.15,
+        tag_size: float = 0.078,
         camera_matrix: Optional[np.ndarray] = None,
         dist_coeffs: Optional[np.ndarray] = None,
         aruco_dict_name: str = "DICT_4X4_50",

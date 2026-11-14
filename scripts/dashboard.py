@@ -95,7 +95,7 @@ class RoboMasterDashboard:
 
         self.detector = TagDetector(
             tag_type=tag_cfg.get("tag_type", "apriltag"),
-            tag_size=tag_cfg.get("physical_size", 0.15),
+            tag_size=tag_cfg.get("physical_size", 0.078),
             camera_matrix=self.K,
             apriltag_family=tag_cfg.get("apriltag_family", "auto"),
             target_ids=tag_cfg.get("target_ids", [1, 2, 3]),
@@ -285,7 +285,7 @@ class RoboMasterDashboard:
 
         self.var_start = tk.StringVar(value=str(exp_cfg.get("start_distance", 1.50)))
         self.var_stop = tk.StringVar(value=str(exp_cfg.get("stop_distance", 0.25)))
-        self.var_tag_size = tk.StringVar(value=str(tag_cfg.get("physical_size", 0.15)))
+        self.var_tag_size = tk.StringVar(value=str(tag_cfg.get("physical_size", 0.078)))
         self.var_tag_type = tk.StringVar(value=str(tag_cfg.get("tag_type", "apriltag")))
 
         for col, (lbl, var) in enumerate([("Start (m):", self.var_start), ("Stop (m):", self.var_stop), ("Tag Size (m):", self.var_tag_size)]):
@@ -505,7 +505,7 @@ class RoboMasterDashboard:
         if not self.connected:
             mode_str = self.mode_var.get()
             start_d = float(self.var_start.get() or 1.50)
-            tag_sz = float(self.var_tag_size.get() or 0.15)
+            tag_sz = float(self.var_tag_size.get() or 0.078)
             tag_tp = self.var_tag_type.get()
 
             if mode_str == "Simulator":
