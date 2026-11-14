@@ -75,6 +75,10 @@ class TagDetector:
         else:
             self.camera_matrix = np.array(camera_matrix, dtype=np.float64)
 
+        self._base_camera_matrix = self.camera_matrix.copy()
+        self._base_width = max(2.0 * float(self._base_camera_matrix[0, 2]), 1.0)
+        self._base_height = max(2.0 * float(self._base_camera_matrix[1, 2]), 1.0)
+
         if dist_coeffs is None:
             self.dist_coeffs = np.zeros((5, 1), dtype=np.float64)
         else:
@@ -103,9 +107,11 @@ class TagDetector:
             self.aruco_detector = None
 
         # Initialize AprilTag detector(s) with sub-pixel corner refinement
+        # Note: 16h5 / 25h9 have tiny bit grids that cause false positives on room geometry;
+        # restrict "auto" to 36h11.
         self.apriltag_detectors = []
         families = (
-            ["DICT_APRILTAG_36h11", "DICT_APRILTAG_25h9", "DICT_APRILTAG_16h5"]
+            ["DICT_APRILTAG_36h11"]
             if apriltag_family.lower() == "auto"
             else [apriltag_family]
         )
@@ -130,6 +136,15 @@ class TagDetector:
         """
         if frame is None or frame.size == 0:
             return TagDetection()
+
+        h, w = frame.shape[:2]
+        if w > 0 and h > 0:
+            scale_x = float(w) / self._base_width
+            scale_y = float(h) / self._base_height
+            self.camera_matrix[0, 0] = self._base_camera_matrix[0, 0] * scale_x
+            self.camera_matrix[1, 1] = self._base_camera_matrix[1, 1] * scale_y
+            self.camera_matrix[0, 2] = float(w) / 2.0
+            self.camera_matrix[1, 2] = float(h) / 2.0
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
 
@@ -241,6 +256,10 @@ class TagDetector:
         h2 = np.linalg.norm(ordered_corners[1] - ordered_corners[2])
         w_px = float((w1 + w2) / 2.0)
         h_px = float((h1 + h2) / 2.0)
+
+        # Reject tiny or heavily skewed false-positive quads
+        if w_px < 12.0 or h_px < 12.0 or max(w_px / h_px, h_px / w_px) > 2.2:
+            return TagDetection()
 
         fx = self.camera_matrix[0, 0]
         fy = self.camera_matrix[1, 1]

@@ -132,6 +132,9 @@ class RoboMasterDashboard:
         self.teleop_vx_shaped = 0.0
         self.teleop_vy_shaped = 0.0
         self.teleop_wz_shaped = 0.0
+        self.keys_held = set()
+        self.key_release_timers = {}
+        self.mouse_teleop_cmd = [0.0, 0.0, 0.0]
 
         # Latest UI snapshot
         self.latest_frame = None
@@ -409,31 +412,96 @@ class RoboMasterDashboard:
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
     def _bind_keyboard(self):
-        key_map = {
-            "w": (1.0, 0.0, 0.0),
-            "s": (-1.0, 0.0, 0.0),
-            "a": (0.0, -1.0, 0.0),
-            "d": (0.0, 1.0, 0.0),
-            "q": (0.0, 0.0, -35.0),
-            "e": (0.0, 0.0, 35.0),
+        # Map keysyms (lower, upper, and arrow keys) to normalized action names
+        key_aliases = {
+            "w": "w", "W": "w", "Up": "w",
+            "s": "s", "S": "s", "Down": "s",
+            "a": "a", "A": "a", "Left": "a",
+            "d": "d", "D": "d", "Right": "d",
+            "q": "q", "Q": "q",
+            "e": "e", "E": "e",
         }
-        for k, (vx, vy, wz) in key_map.items():
-            self.root.bind(f"<KeyPress-{k}>", lambda e, x=vx, y=vy, z=wz: self._on_key_teleop(x, y, z))
-            self.root.bind(f"<KeyRelease-{k}>", lambda e: self._on_key_release())
+        for sym, norm in key_aliases.items():
+            self.root.bind(f"<KeyPress-{sym}>", lambda e, k=norm: self._on_key_press(k))
+            self.root.bind(f"<KeyRelease-{sym}>", lambda e, k=norm: self._on_key_release(k))
+        self.root.bind("<FocusOut>", lambda e: self._clear_held_keys())
         self.root.bind("<space>", lambda e: self._emergency_stop())
 
-    def _on_key_teleop(self, vx_mult, vy_mult, wz_val):
+    def _on_key_press(self, key_name: str):
         # Ignore keyboard teleop if user is typing in an Entry widget
         if isinstance(self.root.focus_get(), tk.Entry):
             return
-        if self.teleop_active:
-            self._set_teleop_cmd(vx_mult, vy_mult, wz_val)
+        timer = self.key_release_timers.pop(key_name, None)
+        if timer is not None:
+            try:
+                self.root.after_cancel(timer)
+            except Exception:
+                pass
+        with self.lock:
+            self.keys_held.add(key_name)
 
-    def _on_key_release(self):
+    def _on_key_release(self, key_name: str):
         if isinstance(self.root.focus_get(), tk.Entry):
             return
-        if self.teleop_active:
-            self._teleop_stop()
+        # Debounce X11 auto-repeat KeyRelease/KeyPress pairs (~45 ms)
+        old_timer = self.key_release_timers.pop(key_name, None)
+        if old_timer is not None:
+            try:
+                self.root.after_cancel(old_timer)
+            except Exception:
+                pass
+        self.key_release_timers[key_name] = self.root.after(
+            45, lambda k=key_name: self._commit_key_release(k)
+        )
+
+    def _commit_key_release(self, key_name: str):
+        self.key_release_timers.pop(key_name, None)
+        with self.lock:
+            self.keys_held.discard(key_name)
+
+    def _clear_held_keys(self):
+        for timer in list(self.key_release_timers.values()):
+            try:
+                self.root.after_cancel(timer)
+            except Exception:
+                pass
+        self.key_release_timers.clear()
+        with self.lock:
+            self.keys_held.clear()
+            self.mouse_teleop_cmd = [0.0, 0.0, 0.0]
+
+    def _compute_teleop_target(self) -> tuple[float, float, float]:
+        """Combine all currently held keyboard keys and mouse D-pad input."""
+        try:
+            spd = float(self.var_teleop_speed.get())
+        except Exception:
+            spd = 0.20
+
+        with self.lock:
+            held = set(self.keys_held)
+            mx, my, mz = self.mouse_teleop_cmd
+
+        vx_m = mx
+        vy_m = my
+        wz = mz
+
+        if "w" in held:
+            vx_m += 1.0
+        if "s" in held:
+            vx_m -= 1.0
+        if "a" in held:
+            vy_m -= 1.0
+        if "d" in held:
+            vy_m += 1.0
+        if "q" in held:
+            wz -= 35.0
+        if "e" in held:
+            wz += 35.0
+
+        vx_m = float(np.clip(vx_m, -1.0, 1.0))
+        vy_m = float(np.clip(vy_m, -1.0, 1.0))
+        wz = float(np.clip(wz, -35.0, 35.0))
+        return vx_m * spd, vy_m * spd, wz
 
     def _toggle_connect(self):
         if not self.connected:
@@ -522,11 +590,15 @@ class RoboMasterDashboard:
         if not self.connected:
             messagebox.showwarning("Not Connected", "Connect to RoboMaster EP or Simulator first.")
             return
+        self._clear_held_keys()
         with self.lock:
             self.teleop_active = not self.teleop_active
             self.teleop_vx = 0.0
             self.teleop_vy = 0.0
             self.teleop_wz = 0.0
+            self.teleop_vx_shaped = 0.0
+            self.teleop_vy_shaped = 0.0
+            self.teleop_wz_shaped = 0.0
             if self.robot:
                 self.robot.stop()
             if self.teleop_active:
@@ -543,17 +615,18 @@ class RoboMasterDashboard:
     def _set_teleop_cmd(self, vx_mult: float, vy_mult: float, wz_val: float):
         if not self.connected or not self.teleop_active:
             return
-        spd = float(self.var_teleop_speed.get())
         with self.lock:
-            self.teleop_vx = vx_mult * spd
-            self.teleop_vy = vy_mult * spd
-            self.teleop_wz = wz_val
+            self.mouse_teleop_cmd = [float(vx_mult), float(vy_mult), float(wz_val)]
 
     def _teleop_stop(self):
+        self._clear_held_keys()
         with self.lock:
             self.teleop_vx = 0.0
             self.teleop_vy = 0.0
             self.teleop_wz = 0.0
+            self.teleop_vx_shaped = 0.0
+            self.teleop_vy_shaped = 0.0
+            self.teleop_wz_shaped = 0.0
             if self.robot:
                 self.robot.stop()
 
@@ -733,12 +806,13 @@ class RoboMasterDashboard:
                             self.status_detail = "Tag temporarily out of view — propagating position via Mecanum wheel encoders."
 
                 elif mode == "TELEOP":
-                    # Smooth slew-rate shaping for teleop (no sudden jerks)
+                    # Combine all held keys / D-pad inputs and slew-rate shape smoothly
+                    target_vx, target_vy, target_wz = self._compute_teleop_target()
                     max_dv = 2.0 * dt
                     max_dwz = 240.0 * dt
-                    self.teleop_vx_shaped += float(np.clip(self.teleop_vx - self.teleop_vx_shaped, -max_dv, max_dv))
-                    self.teleop_vy_shaped += float(np.clip(self.teleop_vy - self.teleop_vy_shaped, -max_dv, max_dv))
-                    self.teleop_wz_shaped += float(np.clip(self.teleop_wz - self.teleop_wz_shaped, -max_dwz, max_dwz))
+                    self.teleop_vx_shaped += float(np.clip(target_vx - self.teleop_vx_shaped, -max_dv, max_dv))
+                    self.teleop_vy_shaped += float(np.clip(target_vy - self.teleop_vy_shaped, -max_dv, max_dv))
+                    self.teleop_wz_shaped += float(np.clip(target_wz - self.teleop_wz_shaped, -max_dwz, max_dwz))
 
                     is_moving = (
                         abs(self.teleop_vx_shaped) > 0.015

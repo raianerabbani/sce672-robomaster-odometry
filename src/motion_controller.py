@@ -54,6 +54,7 @@ class StraightLineMotionController:
         self.wz_shaped: float = 0.0
         self.bearing_filt: Optional[float] = None
         self.last_bearing_filt: Optional[float] = None
+        self._outlier_count: int = 0
         self.last_time: Optional[float] = None
         self.target_reached: bool = False
 
@@ -65,6 +66,7 @@ class StraightLineMotionController:
         self.wz_shaped = 0.0
         self.bearing_filt = None
         self.last_bearing_filt = None
+        self._outlier_count = 0
         self.last_time = None
         self.target_reached = False
 
@@ -109,12 +111,21 @@ class StraightLineMotionController:
             raw_b = float(tag_bearing_deg)
             if self.bearing_filt is None:
                 self.bearing_filt = raw_b
+                self._outlier_count = 0
+            elif abs(raw_b - self.bearing_filt) > 20.0 and self._outlier_count < 2:
+                # Reject sudden single/double-frame bearing jump spikes (e.g. false tag glitch)
+                self._outlier_count += 1
             else:
+                self._outlier_count = 0
                 self.bearing_filt = 0.25 * raw_b + 0.75 * self.bearing_filt
 
             bearing_rate = 0.0
             if self.last_bearing_filt is not None and dt > 0.001:
-                bearing_rate = (self.bearing_filt - self.last_bearing_filt) / dt
+                bearing_rate = float(np.clip(
+                    (self.bearing_filt - self.last_bearing_filt) / dt,
+                    -60.0,
+                    60.0
+                ))
             self.last_bearing_filt = self.bearing_filt
 
             if abs(self.bearing_filt) < self.yaw_deadband_deg:
@@ -128,7 +139,12 @@ class StraightLineMotionController:
                     self.max_yaw_rate
                 ))
         else:
-            # Tag momentarily unseen: decay yaw rate smoothly to 0 to hold straight heading
+            # Tag momentarily unseen: clear derivative history to avoid kick on re-acquisition,
+            # gently decay filtered bearing, and command 0 yaw rate to hold straight heading.
+            self.last_bearing_filt = None
+            self._outlier_count = 0
+            if self.bearing_filt is not None:
+                self.bearing_filt *= max(0.0, 1.0 - 2.0 * dt)
             wz_target = 0.0
 
         max_dwz = 90.0 * dt
