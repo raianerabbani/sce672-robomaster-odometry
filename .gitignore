@@ -56,3 +56,12 @@ controller_walkthrough.html
 data_pipeline_walkthrough.html
 scripts/generate_report.py
 report/
+src/
+scripts/
+config/
+tags/
+assets/
+assessment 3/
+launch_dashboard.sh
+robomaster-odometry.desktop
+results/single_file_summary.csv
